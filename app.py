@@ -150,6 +150,32 @@ with st.sidebar:
     st.divider()
 
     st.subheader("📍 2. الموقع الجغرافي للمزرعة")
+
+    # Feature: HTML5 GPS Geolocation Auto-Detect
+    use_gps = st.checkbox(
+        "📡 تحديد موقعي الفعلي تلقائياً (GPS Auto-Detect)",
+        key="enable_gps_detect",
+        help="تحديد إحداثيات مزرعتك تلقائياً عبر مستشعر الموقع الجغرافي بجهازك"
+    )
+    if use_gps:
+        try:
+            from streamlit_js_eval import get_geolocation
+            location = get_geolocation(component_key="farm_gps_locator")
+            if location and isinstance(location, dict) and "coords" in location:
+                gps_lat = round(location["coords"]["latitude"], 4)
+                gps_lon = round(location["coords"]["longitude"], 4)
+                if abs(gps_lat - st.session_state.latitude) > 0.0005 or abs(gps_lon - st.session_state.longitude) > 0.0005:
+                    st.session_state.latitude = gps_lat
+                    st.session_state.longitude = gps_lon
+                    st.toast(f"📍 تم التقاط موقعك الجغرافي بنجاح: {gps_lat}, {gps_lon}", icon="🎯")
+                    st.session_state.telemetry = nasa_client.fetch_point_telemetry(
+                        gps_lat, gps_lon, days=15, timeout=3, allow_network=False
+                    )
+            elif location is None:
+                st.caption("⏳ في انتظار إذن المتصفح لتحديد موقع GPS...")
+        except Exception:
+            pass
+
     col_lat, col_lon = st.columns(2)
     with col_lat:
         input_lat = st.number_input(
