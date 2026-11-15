@@ -151,30 +151,16 @@ with st.sidebar:
 
     st.subheader("📍 2. الموقع الجغرافي للمزرعة")
 
-    # Feature: HTML5 GPS Geolocation Auto-Detect
-    use_gps = st.checkbox(
-        "📡 تحديد موقعي الفعلي تلقائياً (GPS Auto-Detect)",
-        key="enable_gps_detect",
-        help="تحديد إحداثيات مزرعتك تلقائياً عبر مستشعر الموقع الجغرافي بجهازك"
+    gov_choices = get_governorate_choices()
+    preset_gov = st.selectbox(
+        "اختر محافظة مصرية (تحديد سريع):",
+        options=["custom"] + list(gov_choices.keys()),
+        format_func=lambda x: "موقع يدوي مخصص (Custom Pin)" if x == "custom" else gov_choices[x]
     )
-    if use_gps:
-        try:
-            from streamlit_js_eval import get_geolocation
-            location = get_geolocation(component_key="farm_gps_locator")
-            if location and isinstance(location, dict) and "coords" in location:
-                gps_lat = round(location["coords"]["latitude"], 4)
-                gps_lon = round(location["coords"]["longitude"], 4)
-                if abs(gps_lat - st.session_state.latitude) > 0.0005 or abs(gps_lon - st.session_state.longitude) > 0.0005:
-                    st.session_state.latitude = gps_lat
-                    st.session_state.longitude = gps_lon
-                    st.toast(f"📍 تم التقاط موقعك الجغرافي بنجاح: {gps_lat}, {gps_lon}", icon="🎯")
-                    st.session_state.telemetry = nasa_client.fetch_point_telemetry(
-                        gps_lat, gps_lon, days=15, timeout=3, allow_network=False
-                    )
-            elif location is None:
-                st.caption("⏳ في انتظار إذن المتصفح لتحديد موقع GPS...")
-        except Exception:
-            pass
+    if preset_gov != "custom":
+        gov_obj = EGYPT_GOVERNORATES[preset_gov]
+        st.session_state.latitude = gov_obj["lat"]
+        st.session_state.longitude = gov_obj["lon"]
 
     col_lat, col_lon = st.columns(2)
     with col_lat:
@@ -193,17 +179,6 @@ with st.sidebar:
         )
     st.session_state.latitude = input_lat
     st.session_state.longitude = input_lon
-
-    gov_choices = get_governorate_choices()
-    preset_gov = st.selectbox(
-        "أو اختر مركز محافظة مصرية:",
-        options=["custom"] + list(gov_choices.keys()),
-        format_func=lambda x: "موقع يدوي مخصص (Custom Pin)" if x == "custom" else gov_choices[x]
-    )
-    if preset_gov != "custom":
-        gov_obj = EGYPT_GOVERNORATES[preset_gov]
-        st.session_state.latitude = gov_obj["lat"]
-        st.session_state.longitude = gov_obj["lon"]
 
     if st.button("🛰️ تحديث بيانات الطقس حياً من ناسا", use_container_width=True):
         with st.spinner("جاري الاتصال بالأقمار الصناعية وسيرفرات NASA POWER..."):
@@ -281,7 +256,11 @@ with tab1:
         render_nasa_daily_table(st.session_state.telemetry, days=10, dark_mode=is_dark)
 
     st.markdown("#### 📍 موقع المزرعة على الخريطة المدارية التفاعلية:")
-    st.caption("اضغط في أي مكان على الخريطة لتحديث إحداثيات مزرعتك تلقائياً (يمكنك التبديل بين صور الأقمار الصناعية والخريطة الداكنة من زر الطبقات بأعلى اليسار):")
+    st.markdown(f"""
+    <div style="background: {'rgba(0, 229, 255, 0.08)' if is_dark else '#e0f2fe'}; border-right: 4px solid {'#00e5ff' if is_dark else '#0284c7'}; padding: 10px 14px; border-radius: 8px; margin-bottom: 12px; font-size: 0.9rem;">
+        🎯 <b>تحديد الموقع التلقائي (Live GPS):</b> يمكنك الضغط على زر مستشعر الـ GPS <b>(🎯)</b> بأعلى يسار الخريطة لتحديد مكانك الفعلي عبر الهاتف أو اللابتوب، أو الضغط كليك في أي مكان على الخريطة لتحديث موقع مزرعتك وسحب بيانات ناسا المدارية فوراً.
+    </div>
+    """, unsafe_allow_html=True)
 
     ranked_govs_default = rank_governorates(st.session_state.gov_telemetry, "composite_score")
     farm_map = build_orbital_folium_map(

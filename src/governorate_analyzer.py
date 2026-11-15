@@ -466,6 +466,18 @@ def build_orbital_folium_map(
             icon=folium.Icon(color="red", icon="crosshairs", prefix="fa")
         ).add_to(m)
 
+    # Live GPS Geolocation Control Plugin
+    try:
+        from folium.plugins import LocateControl
+        LocateControl(
+            auto_start=False,
+            keepCurrentZoomLevel=False,
+            position="topleft",
+            strings={"title": "🎯 حدد موقع مزرعتك الفعلي عبر الـ GPS"}
+        ).add_to(m)
+    except Exception:
+        pass
+
     # Layer Control toggle
     folium.LayerControl(position="topleft").add_to(m)
 
