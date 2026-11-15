@@ -1,0 +1,23 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Temporary and local cache
+cache/
+*.tmp
+
+# Large binary files (exceeds GitHub 100MB limit)
+Black.pdf
+tools/
+
+# OS and Editor files
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Virtual environments
+venv/
+env/
+.env
