@@ -132,7 +132,7 @@ class AgroOrbitDecisionEngine:
                 "• الأقمار الصناعية لا ترصد التلوث الفطري للجذور أو مخزون بويضات الحشرات في باطن التربة بدقة الحقل."
             ),
             "risks_and_agronomist_review": (
-                f"⚠️ مخاطر حرجة: استنزاف تراكمي لنيتروجين التربة يصل إلى {abs(net_n)} كجم/هكتار، وتراكم آفات التفحم والديدان. "
+                f"مخاطر حرجة: استنزاف تراكمي لنيتروجين التربة يصل إلى {abs(net_n)} كجم/هكتار، وتراكم آفات التفحم والديدان. "
                 "يجب فحص التربة معملياً قبل الاستمرار في هذا النمط."
             )
         }
@@ -200,7 +200,7 @@ class AgroOrbitDecisionEngine:
                 "• الأقمار الصناعية لا تقيس حموضة التربة (pH) أو كثافة البكتيريا العقدية الحية في الحقل."
             ),
             "risks_and_agronomist_review": (
-                "⚠️ متطلبات المراجعة: اختيار سلالة العقدين المناسبة للتربة، ومراقبة آفات البادرات الأولى مع المرشد الزراعي."
+                "متطلبات المراجعة: اختيار سلالة العقدين المناسبة للتربة، ومراقبة آفات البادرات الأولى مع المرشد الزراعي."
             )
         }
 
@@ -270,7 +270,7 @@ class AgroOrbitDecisionEngine:
                 "• بيانات ناسا تقدم متوسطات إقليمية ولا ترصد كفاءة شبكة التنقيط أو مناوبات الري للترعة الفرعية."
             ),
             "risks_and_agronomist_review": (
-                "⚠️ متطلبات المراجعة: تنسيق مواعيد التوريد مع مصانع السكر وتوفر ميكنة تقليع البنجر."
+                "متطلبات المراجعة: تنسيق مواعيد التوريد مع مصانع السكر وتوفر ميكنة تقليع البنجر."
             )
         }
 
@@ -284,38 +284,38 @@ class AgroOrbitDecisionEngine:
         return [
             {
                 "criterion_ar": "المحاصيل المتعاقبة لـ 3 مواسم",
-                "strategy_1": " → ".join(step["crop"]["name_ar"] for step in s1["timeline"]),
-                "strategy_2": " → ".join(step["crop"]["name_ar"] for step in s2["timeline"]),
-                "strategy_3": " → ".join(step["crop"]["name_ar"] for step in s3["timeline"])
+                "strategy_1": " ← ".join(step["crop"]["name_ar"] for step in s1["timeline"]),
+                "strategy_2": " ← ".join(step["crop"]["name_ar"] for step in s2["timeline"]),
+                "strategy_3": " ← ".join(step["crop"]["name_ar"] for step in s3["timeline"])
             },
             {
                 "criterion_ar": "إجمالي استهلاك مياه الري (ملم)",
                 "strategy_1": f"{s1['metrics']['total_water_mm']:.0f} ملم (عالي)",
                 "strategy_2": f"{s2['metrics']['total_water_mm']:.0f} ملم (معتدل)",
-                "strategy_3": f"{s3['metrics']['total_water_mm']:.0f} ملم (أقصى توفير ⭐)"
+                "strategy_3": f"{s3['metrics']['total_water_mm']:.0f} ملم (أقل استهلاك)"
             },
             {
                 "criterion_ar": "نسبة توفير المياه مقارنة بالوضع الراهن",
                 "strategy_1": "0% (خط الأساس)",
-                "strategy_2": f"+{s2['metrics']['water_savings_pct']:.1f}% توفير",
-                "strategy_3": f"+{s3['metrics']['water_savings_pct']:.1f}% توفير قياسي ⭐"
+                "strategy_2": f"+{s2['metrics']['water_savings_pct']:.1f}%",
+                "strategy_3": f"+{s3['metrics']['water_savings_pct']:.1f}% (الأعلى توفيراً)"
             },
             {
                 "criterion_ar": "صافي رصيد نيتروجين التربة (كجم/هكتار)",
-                "strategy_1": f"{s1['metrics']['net_nitrogen_kg_ha']:.0f} كجم (استنزاف ⚠️)",
-                "strategy_2": f"+{s2['metrics']['net_nitrogen_kg_ha']:.0f} كجم (تثبيت عضوي ⭐)",
+                "strategy_1": f"{s1['metrics']['net_nitrogen_kg_ha']:.0f} كجم (استنزاف)",
+                "strategy_2": f"+{s2['metrics']['net_nitrogen_kg_ha']:.0f} كجم (تثبيت حيوي)",
                 "strategy_3": f"{s3['metrics']['net_nitrogen_kg_ha']:+.0f} كجم (متوازن)"
             },
             {
                 "criterion_ar": "كفاءة كسر دورة الآفات والأمراض",
                 "strategy_1": "35% (مخاطر آفات الحبوب)",
-                "strategy_2": "88% (كسر ممتاز لدورات الآفات ⭐)",
-                "strategy_3": "76% (كسر جيد جداً)"
+                "strategy_2": "88% (الأعلى في كسر الدورات)",
+                "strategy_3": "76% (جيد جداً)"
             },
             {
                 "criterion_ar": "مؤشر صحة وبنية التربة الكلي",
                 "strategy_1": "40 / 100",
-                "strategy_2": "92 / 100 ⭐",
+                "strategy_2": "92 / 100",
                 "strategy_3": "80 / 100"
             }
         ]

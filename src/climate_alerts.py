@@ -108,7 +108,7 @@ def evaluate_climate_hazards(
             "icon": "🦠",
             "title_ar": "إنذار مداري بيولوجي: نشاط مرتفع لأبواغ الفطريات (الصدأ واللفحة)",
             "title_en": "Fungal Spore Germination Hazard",
-            "trigger_data": f"تزامن رطوبة جوية مرتفعة ({avg_rh:.1f}%) مع حرارة معتدلة ({avg_temp:.1f}°C) ورطوبة سطحية {gwettop:.2f}.",
+            "trigger_data": f"تزامن رطوبة جوية مرتفعة <bdi dir='ltr'>{avg_rh:.1f}%</bdi> مع حرارة معتدلة <bdi dir='ltr'>{avg_temp:.1f}°C</bdi> ورطوبة سطحية <bdi dir='ltr'>{gwettop:.2f}</bdi>",
             "impact_ar": "بيئة نموذجية لإنبات أبواغ الصدأ الأصفر في القمح، ولفحة البطاطس المبكرة والمتأخرة، والبياض الزغبي.",
             "urgent_actions": [
                 "تنفيذ رشة وقائية عاجلة بأكسي كلورور النحاس أو مانكوزيب قبل حدوث الإصابة المرئية.",
@@ -125,7 +125,7 @@ def evaluate_climate_hazards(
             "icon": "🏜️",
             "title_ar": "إنذار إجهاد مائي حرج: نضوب مخزون الرطوبة في منطقة الجذور (SMAP)",
             "title_en": "Root-Zone Severe Moisture Deficit",
-            "trigger_data": f"أقمار SMAP رصدت هبوط رطوبة الجذور إلى {gwetroot:.2f} (مؤشر {soil_moisture_score}%).",
+            "trigger_data": f"أقمار SMAP رصدت هبوط رطوبة الجذور إلى <bdi dir='ltr'>{gwetroot:.2f}</bdi> ومؤشر <bdi dir='ltr'>{soil_moisture_score}%</bdi>",
             "impact_ar": "انفصال حبيبات التربة عن الجذور، ذبول دائم للأوراق، وتوقف انتقال المغذيات العضوية.",
             "urgent_actions": [
                 "تطبيق رية مشبعة بنظام النبضات (Pulse Drip) لترطيب القطاع الجذري دون هدر.",
@@ -155,7 +155,7 @@ def evaluate_climate_hazards(
             "icon": "🌊",
             "title_ar": "تنبيه تشبع التربة: غدق مائي وخطر اختناق الجذور ونقص الأكسجين",
             "title_en": "Soil Waterlogging & Root Hypoxia Alert",
-            "trigger_data": f"رطوبة التربة المقاسة من الفضاء ({soil_moisture_score}%) تجاوزت السعة الحقلية القصوى.",
+            "trigger_data": f"رطوبة التربة المقاسة من الفضاء (<bdi dir='ltr'>{soil_moisture_score}%</bdi>) تجاوزت السعة الحقلية القصوى.",
             "impact_ar": "طرد الهواء من مسام التربة مما يسبب تعفن الجذور بسب البيثيوم والفيوزاريوم واصفرار الأوراق.",
             "urgent_actions": [
                 "فتح المصارف الحقلية والتأكد من انسياب المياه الزائدة دون ركود.",
@@ -172,7 +172,7 @@ def evaluate_climate_hazards(
             "icon": "🛡️",
             "title_ar": "الوضع المداري مستقر: بيئة نمو فسيولوجية مثالية وآمنة",
             "title_en": "Nominal Agro-Climatic Window",
-            "trigger_data": f"متوسط الحرارة {avg_temp:.1f}°C، والرطوبة الجوية {avg_rh:.1f}%، ورطوبة التربة {soil_moisture_score}%.",
+            "trigger_data": f"متوسط الحرارة <bdi dir='ltr'>{avg_temp:.1f}°C</bdi>، والرطوبة الجوية <bdi dir='ltr'>{avg_rh:.1f}%</bdi>، ورطوبة التربة <bdi dir='ltr'>{soil_moisture_score}%</bdi>.",
             "impact_ar": "لا توجد موجات صقيع أو قيظ متطرفة، ومؤشرات البخر في النطاق الطبيعي لكافة المحاصيل المقترحة.",
             "urgent_actions": [
                 "الاستمرار في جدول التسميد والري الدوري الموصى به في دورة صحة التربة.",

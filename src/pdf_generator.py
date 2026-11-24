@@ -20,7 +20,7 @@ from datetime import datetime
 from typing import Dict, Any, Optional
 from pathlib import Path
 from src import config
-from src.space_theme import get_logo_base64
+from src.design_system import get_logo_base64
 
 
 REPORTS_CACHE_DIR = config.ROOT_DIR / "cache" / "reports"
