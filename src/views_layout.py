@@ -50,43 +50,42 @@ def _toggle_theme():
 
 
 # =============================================================================
-# 1. Persistent Top Navigation Bar (Quiet Chrome)
+# 1. Persistent Top Navigation Bar (Sleek Edge-to-Edge SaaS Header)
 # =============================================================================
-def render_navbar(dark_mode: bool = True):
-    """Render minimal top header with logo, routes, theme toggle, and 1 CTA."""
+def render_navbar(dark_mode: bool = False):
+    """Render slim edge-to-edge top header matching crisp modern web apps."""
     t = get_tokens(dark_mode)
     current_page = st.session_state.get("page", "landing")
     has_results = st.session_state.get("strategies_result") is not None
     logo_uri = get_logo_base64()
 
     with st.container(key="ao_navbar"):
-        brand_col, nav_col, act_col = st.columns([1.1, 3.5, 1.6], vertical_alignment="center")
+        left_group, right_group = st.columns([3.2, 1.4], vertical_alignment="center")
 
-        with brand_col:
-            logo_img = (
-                f'<img src="{logo_uri}" alt="AgroOrbit" '
-                f'style="width:26px;height:26px;object-fit:contain;border-radius:6px;" />'
-                if logo_uri else svg_icon("sprout", 20)
-            )
-            st.markdown(
-                f'<div style="display:flex;align-items:center;gap:10px;white-space:nowrap;">'
-                f'{logo_img}'
-                f'<span class="ao-mono" style="font-size:16px;font-weight:500;color:{t["text_primary"]};">AgroOrbit</span>'
-                f'</div>',
-                unsafe_allow_html=True,
-            )
+        with left_group:
+            with st.container(horizontal=True, wrap=False, horizontal_alignment="left", vertical_alignment="center", gap="small"):
+                logo_img = (
+                    f'<img src="{logo_uri}" alt="AgroOrbit" '
+                    f'style="width:26px;height:26px;object-fit:contain;border-radius:6px;" />'
+                    if logo_uri else svg_icon("sprout", 20)
+                )
+                st.markdown(
+                    f'<div style="display:inline-flex;align-items:center;gap:8px;white-space:nowrap;padding-inline-end:16px;margin-inline-end:8px;border-inline-end:1px solid {t["hairline"]};">'
+                    f'{logo_img}'
+                    f'<span class="ao-mono" style="font-size:15.5px;font-weight:600;color:{t["accent"]};">AgroOrbit</span>'
+                    f'</div>',
+                    unsafe_allow_html=True,
+                )
 
-        with nav_col:
-            with st.container(horizontal=True, wrap=False, horizontal_alignment="center", vertical_alignment="center", gap="small"):
                 routes = [
-                    ("landing", "الرئيسية"),
-                    ("governorates", "المحافظات"),
-                    ("library", "المكتبة"),
+                    ("landing", "الرئيسية", ":material/home:"),
+                    ("governorates", "المحافظات", ":material/map:"),
+                    ("library", "المكتبة", ":material/menu_book:"),
                 ]
                 if has_results:
-                    routes.append(("results", "النتائج"))
+                    routes.append(("results", "النتائج", ":material/analytics:"))
 
-                for route_id, label in routes:
+                for route_id, label, icon_name in routes:
                     is_active = (current_page == route_id) or (
                         route_id == "landing" and current_page == "wizard" and not has_results
                     )
@@ -94,6 +93,7 @@ def render_navbar(dark_mode: bool = True):
                     with st.container(key=wrap_key):
                         st.button(
                             label,
+                            icon=icon_name,
                             key=f"nav_btn_{route_id}",
                             type="secondary",
                             width="content",
@@ -101,36 +101,39 @@ def render_navbar(dark_mode: bool = True):
                             args=(route_id,),
                         )
 
-        with act_col:
+        with right_group:
             with st.container(horizontal=True, wrap=False, horizontal_alignment="right", vertical_alignment="center", gap="small"):
-                theme_label = "فاتح" if dark_mode else "داكن"
-                st.button(
-                    theme_label,
-                    key="nav_theme_toggle",
-                    type="secondary",
-                    width="content",
-                    on_click=_toggle_theme,
-                )
+                theme_label = "ليلي" if not dark_mode else "نهاري"
+                theme_icon = ":material/dark_mode:" if not dark_mode else ":material/light_mode:"
+                with st.container(key="ao_nav_theme"):
+                    st.button(
+                        theme_label,
+                        icon=theme_icon,
+                        key="nav_theme_toggle",
+                        type="secondary",
+                        width="content",
+                        on_click=_toggle_theme,
+                    )
 
                 cta_label = "تعديل التحليل" if current_page == "results" else "ابدأ التحليل"
-                st.button(
-                    cta_label,
-                    key="nav_cta_btn",
-                    type="primary",
-                    width="content",
-                    on_click=_go_to,
-                    args=("wizard", 1),
-                )
+                with st.container(key="ao_nav_cta"):
+                    st.button(
+                        cta_label,
+                        key="nav_cta_btn",
+                        type="primary",
+                        width="content",
+                        on_click=_go_to,
+                        args=("wizard", 1),
+                    )
 
 
 # =============================================================================
-# 2. Landing Page (Asymmetric Hero + Crop Rotation Ring Moment + 3 Quiet Cards)
+# 2. Landing Page (Asymmetric Hero + Crop Rotation Ring Moment + 3 Crisp Cards)
 # =============================================================================
-def render_landing_page(dark_mode: bool = True):
-    """Render first-impression hero with asymmetric split and live Rotation Ring moment."""
+def render_landing_page(dark_mode: bool = False):
+    """Render bright first-impression hero with asymmetric split and Rotation Ring."""
     t = get_tokens(dark_mode)
 
-    # Compute crisp default preview rotation from calibrated delta baseline
     preview_res = st.session_state.get("strategies_result")
     if preview_res is None:
         preview_tel = st.session_state.telemetry
@@ -156,7 +159,7 @@ def render_landing_page(dark_mode: bool = True):
         show_legend=True,
     )
 
-    st.markdown('<div style="height: 24px;"></div>', unsafe_allow_html=True)
+    st.markdown('<div style="height: 20px;"></div>', unsafe_allow_html=True)
     col_copy, col_visual = st.columns([1.15, 1.0], vertical_alignment="center", gap="large")
 
     with col_copy:
@@ -164,12 +167,12 @@ def render_landing_page(dark_mode: bool = True):
             f"""
             <div class="ao-enter">
                 <div style="margin-bottom: 16px;">
-                    <span class="ao-tag">
+                    <span class="ao-tag ao-tag-accent">
                         <span class="ao-dot" style="background:{t['accent']};"></span>
                         <span>بيانات <bdi dir="ltr">NASA POWER</bdi> و <bdi dir="ltr">SMAP</bdi> · 27 محافظة</span>
                     </span>
                 </div>
-                <h1 class="ao-hero-title" style="font-size: 46px; font-weight: 500; line-height: 1.25; margin-bottom: 16px; color: {t['text_primary']};">
+                <h1 class="ao-hero-title" style="font-size: 46px; font-weight: 600; line-height: 1.25; margin-bottom: 16px; color: {t['text_primary']};">
                     اعرف تزرع إيه في أرضك الموسم الجاي
                 </h1>
                 <p style="font-size: 17px; line-height: 1.7; color: {t['text_secondary']}; max-width: 34rem; margin-bottom: 24px;">
@@ -210,33 +213,41 @@ def render_landing_page(dark_mode: bool = True):
 
     st.markdown('<div style="height: 36px;"></div>', unsafe_allow_html=True)
 
-    # 3 Calm Value Pillars below Hero (Matching reference clarity)
+    # 3 Value Cards with crisp semantic icon wells (Sky Telemetry, Emerald Growth, Harvest Gold Reports)
     c1, c2, c3 = st.columns(3, gap="medium")
     cards = [
         (
             "map-pin",
+            t["sky_teal"],
+            t["sky_tint"],
             "بيانات مكانك الدقيقة",
             "سحب 15 يوم من قياسات الحرارة، الإشعاع الشمسي، ورطوبة التربة الجذرية لإحداثيات أرضك من ناسا.",
         ),
         (
             "sprout",
+            t["accent"],
+            t["accent_tint"],
             "3 خطط مقارنة",
             "خطة لتجديد خصوبة التربة بالبقوليات، وخطة لتوفير المياه في الحرارة العالية، مقارنة بنمطك الحالي.",
         ),
         (
             "file-text",
+            t["wheat_gold"],
+            t["wheat_tint"],
             "ملخص صوتي وتقرير للطباعة",
             "اسمع التوصية بالعامية المصرية أونلاين أو احفظ التقرير الرسمي <bdi dir='ltr'>PDF</bdi> لمشاركته في الجمعية الزراعية.",
         ),
     ]
-    for col, (icon_name, title, desc) in zip((c1, c2, c3), cards):
+    for col, (icon_name, fg_col, bg_col, title, desc) in zip((c1, c2, c3), cards):
         with col:
             st.markdown(
                 f"""
                 <div class="ao-card-compact" style="height:100%;">
-                    <div style="display:flex;align-items:center;gap:8px;color:{t['text_secondary']};margin-bottom:8px;">
-                        {svg_icon(icon_name, 16)}
-                        <span style="font-size:15px;font-weight:500;color:{t['text_primary']};">{title}</span>
+                    <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;">
+                        <span class="ao-icon-box" style="background:{bg_col};color:{fg_col};">
+                            {svg_icon(icon_name, 17)}
+                        </span>
+                        <span style="font-size:15px;font-weight:600;color:{t['text_primary']};">{title}</span>
                     </div>
                     <p style="font-size:14px;line-height:1.65;color:{t['text_secondary']};margin:0;">
                         {desc}

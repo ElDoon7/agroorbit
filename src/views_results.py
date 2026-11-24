@@ -163,13 +163,15 @@ def _render_tab_plan(res: Dict[str, Any], t: Dict[str, str], dark_mode: bool, ar
 
     st.markdown(
         f"""
-        <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:8px;">
-            <h2 style="font-size:26px;">{_clean_tag_title(strat.get('tag_ar', ''))}</h2>
-            {tag_badge}
+        <div style="text-align:start;direction:rtl;">
+            <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:8px;">
+                <h2 style="font-size:26px;">{_clean_tag_title(strat.get('tag_ar', ''))}</h2>
+                {tag_badge}
+            </div>
+            <p style="text-align:start;font-size:15px;color:{t['text_secondary']};margin:0 0 24px 0;">
+                {strat.get('summary_ar', '')}
+            </p>
         </div>
-        <p style="font-size:15px;color:{t['text_secondary']};margin-bottom:24px;">
-            {strat.get('summary_ar', '')}
-        </p>
         """,
         unsafe_allow_html=True,
     )
@@ -212,6 +214,7 @@ def _render_tab_plan(res: Dict[str, Any], t: Dict[str, str], dark_mode: bool, ar
             c_water = crop.get("water_demand_mm", 0)
             c_n = crop.get("nitrogen_balance_kg_ha", 0)
             n_color = t["positive"] if c_n > 0 else t["negative"] if c_n < 0 else t["text_muted"]
+            n_bg = t["accent_tint"] if c_n > 0 else t["negative_tint"] if c_n < 0 else t["bg_raised"]
             n_str = f"{c_n:+.0f} كجم N"
             bar_html = season_bar_html([idx], dark_mode=dark_mode, season_colors=season_colors)
 
@@ -221,22 +224,22 @@ def _render_tab_plan(res: Dict[str, Any], t: Dict[str, str], dark_mode: bool, ar
                 f'<td style="font-weight:500;color:{t["text_primary"]};">{c_name}</td>'
                 f'<td>{bar_html}</td>'
                 f'<td style="text-align:end;"><span class="ao-mono" style="color:{t["text_secondary"]};">{c_water:.0f}</span> <span style="font-size:12px;color:{t["text_muted"]};">ملم</span></td>'
-                f'<td style="text-align:end;"><span class="ao-mono" style="color:{n_color};">{n_str}</span></td>'
+                f'<td style="text-align:end;"><span class="ao-mono" style="background:{n_bg};color:{n_color};padding:2px 8px;border-radius:6px;font-size:12.5px;">{n_str}</span></td>'
                 f'</tr>'
             )
 
         summary_footer = ""
         if active_key != "strategy_1_baseline":
             summary_footer = (
-                f'<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;padding:16px;border-top:1px solid {t["hairline"]};background:{t["bg_deepest"]};">'
-                f'<div><div style="font-size:12px;color:{t["text_muted"]};">توفير يوريا</div><div class="ao-num" style="font-size:16px;font-weight:500;color:{t["text_primary"]};margin-top:4px;">{urea_bags:.1f} شكارة</div></div>'
-                f'<div><div style="font-size:12px;color:{t["text_muted"]};">الوفر المالي</div><div class="ao-num" style="font-size:16px;font-weight:500;color:{t["accent"]};margin-top:4px;">{fin_gain:,.0f} ج</div></div>'
-                f'<div><div style="font-size:12px;color:{t["text_muted"]};">كسر الآفات</div><div class="ao-num" style="font-size:16px;font-weight:500;color:{t["text_primary"]};margin-top:4px;">{metrics.get("pest_break_efficiency_pct", 0):.0f}%</div></div>'
+                f'<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;padding:16px;border-top:1px solid {t["hairline"]};background:{t["bg_raised"]};">'
+                f'<div><div style="font-size:12px;color:{t["text_muted"]};">توفير يوريا</div><div class="ao-num" style="font-size:17px;font-weight:600;color:{t["wheat_gold"]};margin-top:4px;">{urea_bags:.1f} شكارة</div></div>'
+                f'<div><div style="font-size:12px;color:{t["text_muted"]};">الوفر المالي</div><div class="ao-num" style="font-size:17px;font-weight:600;color:{t["accent"]};margin-top:4px;">{fin_gain:,.0f} ج</div></div>'
+                f'<div><div style="font-size:12px;color:{t["text_muted"]};">كسر الآفات</div><div class="ao-num" style="font-size:17px;font-weight:600;color:{t["sky_teal"]};margin-top:4px;">{metrics.get("pest_break_efficiency_pct", 0):.0f}%</div></div>'
                 f'</div>'
             )
         else:
             summary_footer = (
-                f'<div style="padding:14px 16px;border-top:1px solid {t["hairline"]};background:{t["bg_deepest"]};font-size:13px;color:{t["text_secondary"]};">'
+                f'<div style="padding:14px 16px;border-top:1px solid {t["hairline"]};background:{t["bg_raised"]};font-size:13px;color:{t["text_secondary"]};">'
                 f'يمثل خط الأساس التقليدي للمقارنة. كفاءة كسر الآفات: <bdi class="ao-num">{metrics.get("pest_break_efficiency_pct", 0):.0f}%</bdi>'
                 f'</div>'
             )
@@ -340,19 +343,22 @@ def _render_tab_weather(res: Dict[str, Any], t: Dict[str, str], dark_mode: bool)
         unsafe_allow_html=True,
     )
 
-    # 4 Compact Stat Cards (Numbers only, equal height)
+    # 4 Vivid Semantic KPI Stat Cards
     c1, c2, c3, c4 = st.columns(4, gap="small")
     stats = [
-        ("متوسط الحرارة", f"{indices.get('avg_temp_c', 22.0)}°C", f"قصوى {indices.get('max_temp_c')} · دنيا {indices.get('min_temp_c')}"),
-        ("رطوبة التربة (SMAP)", f"{indices.get('soil_moisture_score', 45.0)}%", f"جذرية {indices.get('avg_root_zone_moisture')} · سطحية {indices.get('avg_surface_moisture')}"),
-        ("الأمطار (GPM)", f"{indices.get('total_precip_mm', 0.0)} مم", f"الرطوبة النسبية {indices.get('avg_relative_humidity')}%"),
-        ("الإشعاع الشمسي", f"{indices.get('avg_solar_radiation_mj', 18.5)} MJ", f"أيام إجهاد حراري: {indices.get('extreme_heat_days', 0)}"),
+        ("متوسط الحرارة", f"{indices.get('avg_temp_c', 22.0)}°C", f"قصوى {indices.get('max_temp_c')} · دنيا {indices.get('min_temp_c')}", "thermometer", t["wheat_gold"], t["wheat_tint"]),
+        ("رطوبة التربة (SMAP)", f"{indices.get('soil_moisture_score', 45.0)}%", f"جذرية {indices.get('avg_root_zone_moisture')} · سطحية {indices.get('avg_surface_moisture')}", "droplets", t["accent"], t["accent_tint"]),
+        ("الأمطار (GPM)", f"{indices.get('total_precip_mm', 0.0)} مم", f"الرطوبة النسبية {indices.get('avg_relative_humidity')}%", "droplets", t["sky_teal"], t["sky_tint"]),
+        ("الإشعاع الشمسي", f"{indices.get('avg_solar_radiation_mj', 18.5)} MJ", f"أيام إجهاد حراري: {indices.get('extreme_heat_days', 0)}", "sun", t["wheat_gold"], t["wheat_tint"]),
     ]
-    for col, (lbl, val, sub) in zip((c1, c2, c3, c4), stats):
+    for col, (lbl, val, sub, ico, fg, bg) in zip((c1, c2, c3, c4), stats):
         with col:
             st.markdown(
                 f'<div class="ao-stat-card">'
-                f'<div class="ao-stat-label">{lbl}</div>'
+                f'<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">'
+                f'<span class="ao-stat-label" style="margin:0;">{lbl}</span>'
+                f'<span class="ao-icon-box" style="width:28px;height:28px;background:{bg};color:{fg};">{svg_icon(ico, 15)}</span>'
+                f'</div>'
                 f'<div class="ao-stat-val"><bdi dir="ltr">{val}</bdi></div>'
                 f'<div class="ao-stat-meta">{sub}</div>'
                 f'</div>',
@@ -380,8 +386,8 @@ def _render_tab_weather(res: Dict[str, Any], t: Dict[str, str], dark_mode: bool)
             y_temps = [round(t2m.get(d, 22.0), 1) for d in dates]
             y_rains = [round(rain.get(d, 0.0), 2) for d in dates]
 
-            grid_c = "rgba(237,237,237,0.06)" if dark_mode else "rgba(23,23,23,0.06)"
-            bar_muted = "rgba(161,161,166,0.28)" if dark_mode else "rgba(82,82,82,0.22)"
+            grid_c = "rgba(226,232,240,0.08)" if dark_mode else "rgba(15,23,42,0.06)"
+            bar_muted = "rgba(14,165,233,0.35)" if dark_mode else "rgba(2,132,199,0.28)"
 
             fig = go.Figure()
             fig.add_trace(go.Bar(
@@ -481,15 +487,16 @@ def _render_tab_weather(res: Dict[str, Any], t: Dict[str, str], dark_mode: bool)
         for a in alerts:
             sev = a["severity"]
             dot_c = t["negative"] if sev == "critical" else t["warning"] if sev == "warning" else t["positive"]
+            badge_bg = t["negative_tint"] if sev == "critical" else t["warning_tint"] if sev == "warning" else t["accent_tint"]
             sev_txt = "حرج" if sev == "critical" else "تنبيه" if sev == "warning" else "مستقر"
             acts = "".join(f"<li style='margin-bottom:4px;'>{x}</li>" for x in a.get("urgent_actions", []))
 
             st.markdown(
                 f"""
-                <div class="ao-card-compact" style="margin-bottom:12px;">
+                <div class="ao-card-compact" style="margin-bottom:12px;border-inline-start:4px solid {dot_c};">
                     <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;margin-bottom:8px;">
-                        <span style="font-size:14px;font-weight:500;color:{t['text_primary']};">{a['title_ar']}</span>
-                        <span class="ao-tag"><span class="ao-dot" style="background:{dot_c};"></span>{sev_txt}</span>
+                        <span style="font-size:14px;font-weight:600;color:{t['text_primary']};">{a['title_ar']}</span>
+                        <span class="ao-tag" style="background:{badge_bg};color:{dot_c};border-color:transparent;"><span class="ao-dot" style="background:{dot_c};"></span>{sev_txt}</span>
                     </div>
                     <p style="font-size:13px;color:{t['text_secondary']};margin:0 0 8px 0;">{a['trigger_data']}</p>
                     <div style="font-size:13px;color:{t['text_secondary']};">
@@ -569,19 +576,22 @@ def _render_tab_savings(res: Dict[str, Any], t: Dict[str, str], dark_mode: bool,
 
     st.markdown('<div style="height: 16px;"></div>', unsafe_allow_html=True)
 
-    # 3 Clean Stat Cards (Numbers only)
+    # 3 Crisp Semantic KPI Stat Cards
     k1, k2, k3 = st.columns(3, gap="medium")
     kpis = [
-        ("الوفر المالي التراكمي", f"{chosen['total_financial_gain_egp']:,.0f} ج", f"معدل {chosen['financial_gain_per_feddan_egp']:,.0f} جنيه / فدان"),
-        ("مياه الري الموفرة", f"{chosen['water_saved_m3']:,.0f} م³", f"+{chosen['water_saved_pct']}% مقارنة بالوضع الحالي"),
-        ("شكاير اليوريا الموفرة", f"{chosen['urea_bags_saved']:,.1f} شكارة", f"تثبيت حيوي · خفض {chosen['co2_offset_tons']:.2f} طن CO₂"),
+        ("الوفر المالي التراكمي", f"{chosen['total_financial_gain_egp']:,.0f} ج", f"معدل {chosen['financial_gain_per_feddan_egp']:,.0f} جنيه / فدان", "coins", t["accent"], t["accent_tint"]),
+        ("مياه الري الموفرة", f"{chosen['water_saved_m3']:,.0f} م³", f"+{chosen['water_saved_pct']}% مقارنة بالوضع الحالي", "droplets", t["sky_teal"], t["sky_tint"]),
+        ("شكاير اليوريا الموفرة", f"{chosen['urea_bags_saved']:,.1f} شكارة", f"تثبيت حيوي · خفض {chosen['co2_offset_tons']:.2f} طن CO₂", "sprout", t["wheat_gold"], t["wheat_tint"]),
     ]
-    for col, (lbl, val, meta) in zip((k1, k2, k3), kpis):
+    for col, (lbl, val, meta, ico, fg, bg) in zip((k1, k2, k3), kpis):
         with col:
             st.markdown(
                 f'<div class="ao-stat-card">'
-                f'<div class="ao-stat-label">{lbl}</div>'
-                f'<div class="ao-stat-val"><bdi dir="ltr">{val}</bdi></div>'
+                f'<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">'
+                f'<span class="ao-stat-label" style="margin:0;">{lbl}</span>'
+                f'<span class="ao-icon-box" style="width:30px;height:30px;background:{bg};color:{fg};">{svg_icon(ico, 16)}</span>'
+                f'</div>'
+                f'<div class="ao-stat-val" style="color:{fg};"><bdi dir="ltr">{val}</bdi></div>'
                 f'<div class="ao-stat-meta">{meta}</div>'
                 f'</div>',
                 unsafe_allow_html=True,
@@ -597,13 +607,13 @@ def _render_tab_savings(res: Dict[str, Any], t: Dict[str, str], dark_mode: bool,
         w_s2 = w_base - roi["strategy_2_soil_health"]["water_saved_m3"]
         w_s3 = w_base - roi["strategy_3_water_resilience"]["water_saved_m3"]
 
-        neutral_bar = "#3a3a3f" if dark_mode else "#d4d4d8"
+        neutral_bar = "#334155" if dark_mode else "#cbd5e1"
         bar_colors = [
             neutral_bar,
             t["accent"] if strat_focus == "soil_health" else neutral_bar,
-            t["accent"] if strat_focus == "water_resilience" else neutral_bar,
+            t["sky_teal"] if strat_focus == "water_resilience" else t["wheat_gold"],
         ]
-        grid_c = "rgba(237,237,237,0.06)" if dark_mode else "rgba(23,23,23,0.06)"
+        grid_c = "rgba(226,232,240,0.08)" if dark_mode else "rgba(15,23,42,0.06)"
 
         fig_w = go.Figure(go.Bar(
             x=["الوضع الحالي", "صحة التربة", "التكيف المائي"],

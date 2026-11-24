@@ -1,7 +1,7 @@
 """
 AgroOrbit - Egypt Governorates Agro-Climatic Intelligence Engine
 Ranks Egypt's 27 governorates from NASA Earth observation indices and renders
-calm single-hue choropleth maps and clean radar profiles.
+vivid satellite choropleth maps with an Emerald-Teal-Gold agronomic gradient.
 """
 
 import json
@@ -31,25 +31,34 @@ def get_egypt_geojson_data():
     return None
 
 
-def _interpolate_single_hue_hex(rank_idx: int, total: int, dark_mode: bool = True) -> str:
-    """
-    Generate a clean single-hue luminance ramp from rank 1 (strongest) to rank 27 (lowest).
-    Eliminates rainbow noise so ranking is readable without scanning legends.
-    """
-    ratio = 1.0 - (rank_idx / max(1, total - 1))  # 1.0 at rank 1, 0.0 at rank 27
-    if dark_mode:
-        # Interpolate from muted slate (#2a332b) to calm sage emerald (#6ba670)
-        r0, g0, b0 = 42, 46, 44
-        r1, g1, b1 = 107, 166, 112
-    else:
-        # Interpolate from soft mist (#e2e6e3) to earthy field green (#2f7d4f)
-        r0, g0, b0 = 220, 226, 222
-        r1, g1, b1 = 47, 125, 79
+def _lerp_rgb(c1: Tuple[int, int, int], c2: Tuple[int, int, int], t: float) -> Tuple[int, int, int]:
+    return (
+        int(c1[0] + (c2[0] - c1[0]) * t),
+        int(c1[1] + (c2[1] - c1[1]) * t),
+        int(c1[2] + (c2[2] - c1[2]) * t),
+    )
 
-    r = int(r0 + (r1 - r0) * ratio)
-    g = int(g0 + (g1 - g0) * ratio)
-    b = int(b0 + (b1 - b0) * ratio)
-    return f"#{r:02x}{g:02x}{b:02x}"
+
+def _interpolate_agronomic_hex(rank_idx: int, total: int) -> str:
+    """
+    Continuous 4-stop agricultural spectrum from Rank 1 (Emerald) -> Teal -> Amber Gold -> Copper.
+    Vivid over satellite imagery without garish neon hues.
+    """
+    pos = rank_idx / max(1, total - 1)  # 0.0 at rank 1 -> 1.0 at rank 27
+    stops = [
+        (0.00, (16, 185, 129)),   # #10b981 Emerald
+        (0.35, (14, 165, 233)),   # #0ea5e9 Sky Teal
+        (0.70, (245, 158, 11)),   # #f59e0b Wheat Amber Gold
+        (1.00, (234, 88, 12)),    # #ea580c Warm Terracotta
+    ]
+    for i in range(len(stops) - 1):
+        p0, c0 = stops[i]
+        p1, c1 = stops[i + 1]
+        if p0 <= pos <= p1:
+            local_t = (pos - p0) / max(1e-6, (p1 - p0))
+            r, g, b = _lerp_rgb(c0, c1, local_t)
+            return f"#{r:02x}{g:02x}{b:02x}"
+    return "#ea580c"
 
 
 CRITERIA_DEFINITIONS = {
@@ -87,9 +96,9 @@ CRITERIA_DEFINITIONS = {
 def rank_governorates(
     gov_telemetry: Dict[str, Dict[str, Any]],
     criterion_key: str = "composite_score",
-    dark_mode: bool = True,
+    dark_mode: bool = False,
 ) -> List[Dict[str, Any]]:
-    """Rank all 27 governorates based on the selected criterion with single-hue tones."""
+    """Rank all 27 governorates based on the selected criterion with Emerald-Teal-Gold tones."""
     index_field = CRITERIA_DEFINITIONS.get(criterion_key, {}).get("index_key", "composite_score")
 
     ranked = []
@@ -114,13 +123,13 @@ def rank_governorates(
     total = len(ranked)
     for idx, g in enumerate(ranked):
         g["rank"] = idx + 1
-        g["color"] = _interpolate_single_hue_hex(idx, total, dark_mode=dark_mode)
+        g["color"] = _interpolate_agronomic_hex(idx, total)
 
     return ranked
 
 
-def build_governorate_radar(gov_record: Dict[str, Any], dark_mode: bool = True) -> go.Figure:
-    """Generate clean, quiet polar profile for a selected governorate."""
+def build_governorate_radar(gov_record: Dict[str, Any], dark_mode: bool = False) -> go.Figure:
+    """Generate crisp, vibrant polar profile for a selected governorate."""
     t = get_tokens(dark_mode)
     indices = gov_record.get("indices", {})
     categories = [
@@ -140,17 +149,17 @@ def build_governorate_radar(gov_record: Dict[str, Any], dark_mode: bool = True) 
     values.append(values[0])
     categories.append(categories[0])
 
-    accent = t["accent"]
-    fill_rgba = "rgba(124, 183, 127, 0.20)" if dark_mode else "rgba(47, 125, 79, 0.16)"
-    grid_col = "rgba(237, 237, 237, 0.08)" if dark_mode else "rgba(23, 23, 23, 0.08)"
+    radar_color = gov_record.get("color", t["accent"])
+    fill_rgba = "rgba(16, 185, 129, 0.22)" if dark_mode else "rgba(5, 150, 105, 0.16)"
+    grid_col = "rgba(226, 232, 240, 0.10)" if dark_mode else "rgba(15, 23, 42, 0.08)"
 
     fig = go.Figure(go.Scatterpolar(
         r=values,
         theta=categories,
         fill="toself",
         fillcolor=fill_rgba,
-        line=dict(color=accent, width=2),
-        marker=dict(color=accent, size=5),
+        line=dict(color=radar_color, width=2.5),
+        marker=dict(color=t["wheat_gold"], size=6),
     ))
 
     fig.update_layout(
@@ -163,7 +172,7 @@ def build_governorate_radar(gov_record: Dict[str, Any], dark_mode: bool = True) 
                 linecolor=grid_col,
             ),
             angularaxis=dict(
-                tickfont=dict(color=t["text_secondary"], size=12, family="IBM Plex Sans Arabic, sans-serif"),
+                tickfont=dict(color=t["text_primary"], size=12, family="IBM Plex Sans Arabic, sans-serif"),
                 gridcolor=grid_col,
                 linecolor=grid_col,
             ),
@@ -172,7 +181,7 @@ def build_governorate_radar(gov_record: Dict[str, Any], dark_mode: bool = True) 
         paper_bgcolor="rgba(0,0,0,0)",
         font=dict(family="IBM Plex Sans Arabic, sans-serif"),
         margin=dict(l=36, r=36, t=24, b=24),
-        height=280,
+        height=290,
         showlegend=False,
     )
     return fig
@@ -185,13 +194,13 @@ def build_orbital_folium_map(
     criterion_key: str = "composite_score",
     selected_farm_coords: Optional[Tuple[float, float]] = None,
     selected_gov_id: Optional[str] = None,
-    dark_mode: bool = True,
+    dark_mode: bool = False,
     zoom_start: int = 6,
     show_labels: bool = True,
 ) -> folium.Map:
     """
-    Build clean choropleth Folium map without rainbow noise or glowing tooltips.
-    Polygons use a calm single-hue luminance scale, highlighting only the selected governorate.
+    Build vivid realistic satellite Folium map with Emerald-Teal-Gold choropleth polygons
+    across all 27 Egyptian governorates, crisp white borders, and native GPS LocateControl.
     """
     t = get_tokens(dark_mode)
 
@@ -202,41 +211,49 @@ def build_orbital_folium_map(
         control_scale=True,
     )
 
-    # Default calm watermark-free basemap matched to app theme; Satellite & OSM sit 1 click away
-    if dark_mode:
-        folium.TileLayer(
-            tiles="https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}",
-            attr="Esri, HERE, Garmin",
-            name="الخريطة الداكنة",
-            max_zoom=16,
-            show=True,
-        ).add_to(m)
-    else:
-        folium.TileLayer(
-            tiles="https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Base/MapServer/tile/{z}/{y}/{x}",
-            attr="Esri, HERE, Garmin",
-            name="الخريطة الفاتحة",
-            max_zoom=16,
-            show=True,
-        ).add_to(m)
-
+    # Layer 1 (Default): Real Satellite Imagery + Geographic Labels
     folium.TileLayer(
         tiles="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
-        attr="Esri, Maxar",
-        name="صور الأقمار الصناعية",
+        attr="Esri, Maxar, Earthstar Geographics",
+        name="صور الأقمار الصناعية (Satellite)",
         max_zoom=18,
+        show=True,
+    ).add_to(m)
+
+    folium.TileLayer(
+        tiles="https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}",
+        attr="Esri",
+        name="حدود وأسماء المدن",
+        overlay=True,
+        show=True,
+    ).add_to(m)
+
+    # Alternative clean map bases
+    folium.TileLayer(
+        tiles="https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Base/MapServer/tile/{z}/{y}/{x}",
+        attr="Esri, HERE, Garmin",
+        name="خريطة فاتحة نظيفة",
+        max_zoom=16,
+        show=False,
+    ).add_to(m)
+
+    folium.TileLayer(
+        tiles="https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}",
+        attr="Esri, HERE, Garmin",
+        name="خريطة داكنة",
+        max_zoom=16,
         show=False,
     ).add_to(m)
 
     folium.TileLayer(
         tiles="https://tile.openstreetmap.org/{z}/{x}/{y}.png",
         attr="OpenStreetMap",
-        name="خريطة الطرق",
+        name="خريطة الشوارع",
         max_zoom=19,
         show=False,
     ).add_to(m)
 
-    # GeoJSON Governorate Choropleth Boundaries
+    # GeoJSON Governorate Choropleth Polygons
     geo_data = get_egypt_geojson_data()
     if geo_data:
         gov_map_data = {g["id"]: g for g in ranked_govs}
@@ -260,7 +277,7 @@ def build_orbital_folium_map(
                 soil_id = g_info.get("dominant_soil", "loam")
                 soil_ar = soil_map.get(soil_id, {}).get("name_ar", soil_id)
 
-                feat_copy["properties"]["color"] = t["accent"] if is_sel else g_info.get("color", t["bg_raised"])
+                feat_copy["properties"]["color"] = g_info.get("color", "#10b981")
                 feat_copy["properties"]["score_str"] = f"{score:.1f}%"
                 feat_copy["properties"]["rank_badge"] = f"#{rank}"
                 feat_copy["properties"]["name_ar_display"] = g_info.get("name_ar", "")
@@ -269,7 +286,7 @@ def build_orbital_folium_map(
                 feat_copy["properties"]["moisture_display"] = f"{g_info.get('indices', {}).get('soil_moisture_score', 45)}%"
                 feat_copy["properties"]["tooltip_label"] = f"{g_info.get('name_ar', '')} · #{rank} ({score:.1f}%)"
             else:
-                feat_copy["properties"]["color"] = t["bg_raised"]
+                feat_copy["properties"]["color"] = "#0ea5e9"
                 feat_copy["properties"]["score_str"] = "-"
                 feat_copy["properties"]["rank_badge"] = "-"
                 feat_copy["properties"]["name_ar_display"] = feat_copy["properties"].get("name_ar", "")
@@ -280,30 +297,29 @@ def build_orbital_folium_map(
             features_copy.append(feat_copy)
 
         enriched_geojson = {"type": "FeatureCollection", "features": features_copy}
-        border_muted = "rgba(237, 237, 237, 0.25)" if dark_mode else "rgba(23, 23, 23, 0.22)"
 
         def polygon_style(feature):
             props = feature["properties"]
             is_sel = props.get("is_selected", False)
             return {
-                "fillColor": props.get("color", t["bg_raised"]),
-                "color": t["accent"] if is_sel else border_muted,
-                "weight": 2.5 if is_sel else 1.0,
-                "fillOpacity": 0.65 if is_sel else 0.48,
-                "opacity": 1.0 if is_sel else 0.75,
+                "fillColor": props.get("color", "#10b981"),
+                "color": "#fef08a" if is_sel else "#ffffff",
+                "weight": 2.8 if is_sel else 1.2,
+                "fillOpacity": 0.62 if is_sel else 0.42,
+                "opacity": 1.0 if is_sel else 0.85,
             }
 
         def polygon_highlight(feature):
             return {
-                "color": t["accent"],
-                "weight": 2.0,
-                "fillOpacity": 0.70,
+                "color": "#ffffff",
+                "weight": 2.5,
+                "fillOpacity": 0.68,
                 "opacity": 1.0,
             }
 
         folium.GeoJson(
             enriched_geojson,
-            name="حدود المحافظات",
+            name="تدرج المحافظات (27 محافظة)",
             style_function=polygon_style,
             highlight_function=polygon_highlight,
             tooltip=folium.GeoJsonTooltip(
@@ -311,24 +327,23 @@ def build_orbital_folium_map(
                 aliases=[""],
                 labels=False,
                 style=(
-                    f"background-color: {t['bg_card']}; color: {t['text_primary']}; "
-                    f"font-family: IBM Plex Sans Arabic, sans-serif; font-size: 12px; font-weight: 500; "
-                    f"border: 1px solid {t['hairline_strong']}; border-radius: 6px; padding: 6px 10px;"
+                    "background-color: #ffffff; color: #0f172a; "
+                    "font-family: IBM Plex Sans Arabic, sans-serif; font-size: 12.5px; font-weight: 500; "
+                    "border: 1px solid rgba(15,23,42,0.16); border-radius: 8px; padding: 6px 10px; "
+                    "box-shadow: 0 4px 12px rgba(15,23,42,0.12);"
                 ),
             ),
             popup=folium.GeoJsonPopup(
                 fields=["name_ar_display", "rank_badge", "score_str", "soil_display", "temp_display", "moisture_display"],
                 aliases=["المحافظة", "الترتيب", "المؤشر", "التربة السائدة", "متوسط الحرارة", "رطوبة التربة"],
                 style=(
-                    f"font-family: IBM Plex Sans Arabic, sans-serif; min-width: 190px; "
-                    f"color: #171717; direction: rtl; font-size: 12px;"
+                    "font-family: IBM Plex Sans Arabic, sans-serif; min-width: 195px; "
+                    "color: #0f172a; direction: rtl; font-size: 12.5px;"
                 ),
             ),
         ).add_to(m)
 
     if show_labels:
-        label_color = "#ededed" if dark_mode else "#171717"
-        label_halo = "rgba(20,20,21,0.85)" if dark_mode else "rgba(255,255,255,0.85)"
         labels_group = folium.FeatureGroup(name="أسماء المحافظات", show=True)
         for g in ranked_govs:
             folium.Marker(
@@ -336,8 +351,8 @@ def build_orbital_folium_map(
                 icon=folium.DivIcon(
                     html=(
                         f'<div style="font-family:\'IBM Plex Sans Arabic\',sans-serif;font-size:11px;'
-                        f'font-weight:500;color:{label_color};'
-                        f'text-shadow:0 1px 2px {label_halo},0 0 4px {label_halo};'
+                        f'font-weight:600;color:#ffffff;'
+                        f'text-shadow:0 1px 3px rgba(0,0,0,0.9),0 0 6px rgba(0,0,0,0.8);'
                         f'text-align:center;white-space:nowrap;transform:translate(-50%,-50%);'
                         f'pointer-events:none;">{g["name_ar"]}</div>'
                     )
@@ -345,18 +360,14 @@ def build_orbital_folium_map(
             ).add_to(labels_group)
         labels_group.add_to(m)
 
-    # Clean pinpoint marker for the farmer's selected plot
+    # Farm Location Pin
     if selected_farm_coords:
         farm_lat, farm_lon = selected_farm_coords
-        folium.CircleMarker(
+        folium.Marker(
             location=[farm_lat, farm_lon],
-            radius=8,
-            color="#ffffff" if dark_mode else "#171717",
-            weight=2,
-            fill=True,
-            fill_color=t["accent"],
-            fill_opacity=1.0,
+            popup="موقع الأرض المختار",
             tooltip="موقع الأرض المختار",
+            icon=folium.Icon(color="red", icon="crosshairs", prefix="fa"),
         ).add_to(m)
 
     try:
@@ -365,7 +376,7 @@ def build_orbital_folium_map(
             auto_start=False,
             keepCurrentZoomLevel=False,
             position="topleft",
-            strings={"title": "موقعي الحالي"},
+            strings={"title": "موقعي الحالي (GPS)"},
         ).add_to(m)
     except Exception:
         pass

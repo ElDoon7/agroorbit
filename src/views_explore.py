@@ -108,6 +108,20 @@ def render_governorates_page(dark_mode: bool = True):
             st.rerun()
 
     with map_col:
+        st.markdown(
+            f"""
+            <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:10px;padding:8px 14px;background:{t['bg_card']};border:1px solid {t['hairline']};border-radius:10px;">
+                <span style="font-size:13px;color:{t['text_secondary']};font-weight:500;">تدرج الألوان على صور الأقمار الصناعية:</span>
+                <div style="display:flex;align-items:center;gap:12px;font-size:12px;color:{t['text_secondary']};">
+                    <span style="display:inline-flex;align-items:center;gap:5px;"><span class="ao-dot" style="background:#10b981;width:9px;height:9px;"></span>ممتاز</span>
+                    <span style="display:inline-flex;align-items:center;gap:5px;"><span class="ao-dot" style="background:#0ea5e9;width:9px;height:9px;"></span>جيد جداً</span>
+                    <span style="display:inline-flex;align-items:center;gap:5px;"><span class="ao-dot" style="background:#f59e0b;width:9px;height:9px;"></span>متوسط</span>
+                    <span style="display:inline-flex;align-items:center;gap:5px;"><span class="ao-dot" style="background:#ea580c;width:9px;height:9px;"></span>يحتاج تكيّف مائي</span>
+                </div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
         sel_record = next((g for g in ranked_govs if g["id"] == default_gov), ranked_govs[0])
         gov_map = build_orbital_folium_map(
             center_lat=27.2,
@@ -119,7 +133,7 @@ def render_governorates_page(dark_mode: bool = True):
             dark_mode=dark_mode,
             zoom_start=6,
         )
-        st_folium(gov_map, height=540, use_container_width=True, key="gov_matrix_map")
+        st_folium(gov_map, height=510, use_container_width=True, key="gov_matrix_map")
 
     # Selected Governorate Detail Drawer / Card below split
     sel_record = next((g for g in ranked_govs if g["id"] == default_gov), ranked_govs[0])
@@ -222,6 +236,7 @@ def _render_library_crops(t: dict, dark_mode: bool, query: str):
         is_bnf = c.get("biological_nitrogen_fixer", False)
         n_val = c.get("nitrogen_balance_kg_ha", 0)
         n_color = t["positive"] if is_bnf else t["negative"]
+        n_bg = t["accent_tint"] if is_bnf else t["negative_tint"]
         s_bars = season_bar_html(_crop_seasons_idx(c.get("season_type", "")), dark_mode=dark_mode)
         profit_map = {"very_high": "مرتفع جداً", "high": "مرتفع", "medium": "متوسط", "low": "منخفض"}
         profit_ar = profit_map.get(c.get("profit_level", ""), c.get("profit_level", ""))
@@ -233,8 +248,8 @@ def _render_library_crops(t: dict, dark_mode: bool, query: str):
             f'<td>{s_bars} <span style="font-size:12px;color:{t["text_secondary"]};margin-inline-start:6px;">{c["season_label_ar"]}</span></td>'
             f'<td class="ao-mono" style="color:{t["text_secondary"]};">{c["temp_opt_min"]:.0f}–{c["temp_opt_max"]:.0f}°C</td>'
             f'<td class="ao-mono" style="color:{t["text_secondary"]};">{c["water_demand_mm"]:.0f} مم</td>'
-            f'<td class="ao-mono" style="color:{n_color};"><bdi dir="ltr">{n_val:+.0f}</bdi></td>'
-            f'<td style="color:{t["text_secondary"]};">{profit_ar}</td>'
+            f'<td><span class="ao-mono" style="background:{n_bg};color:{n_color};padding:2px 8px;border-radius:6px;font-size:12.5px;"><bdi dir="ltr">{n_val:+.0f}</bdi></span></td>'
+            f'<td><span class="ao-tag">{profit_ar}</span></td>'
             f'</tr>'
         )
 

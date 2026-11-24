@@ -34,7 +34,7 @@ st.set_page_config(
 # 2. Session State & Initial Route
 # =============================================================================
 if "theme_mode" not in st.session_state:
-    st.session_state.theme_mode = "dark"
+    st.session_state.theme_mode = "light"
 if "page" not in st.session_state:
     qp_page = st.query_params.get("page", "landing")
     st.session_state.page = qp_page if qp_page in ("landing", "wizard", "results", "governorates", "library") else "landing"
