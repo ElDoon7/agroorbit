@@ -1,31 +1,28 @@
 """
-AgroOrbit - Results View (4 Focused Sub-Tabs)
-  1. Plan (Rotation Ring + 3-Season Bar + Alternative Plans + Closed Comparison)
-  2. Weather & Risks (4 KPI Stats + Primary 10-Day Chart + Early Warnings + What-If)
-  3. Savings ROI (Acreage Sync + 3 KPI Stats + Single Accent Bar Chart + Cost Table)
-  4. Report & Voice (Egyptian Colloquial Audio + A4 PDF Download + Scientific Note)
+AgroOrbit - Stage 3: Custom Rotation Results View
+Structured after GREEN FUTURE's clean progressive Stage 3 layout:
+  Top Action Bar + 3-Column KPI Summary Strip (with Highlighted Savings Box)
+  -> Side-by-Side Comparison Plan Cards (.gf-plan-best / Alt / .gf-plan-baseline)
+  -> 12-Month Color-Coded Gantt Timeline Grid
+  -> Climate Early Warnings + Live ROI Breakdown Calculator
+  -> Scientific Evidence + Printable PDF/HTML Preview + Amber Advisory Box
 """
 
 from typing import Dict, Any
-import plotly.graph_objects as go
+import html
 import streamlit as st
 import streamlit.components.v1 as components
 
-from src.design_system import (
-    get_tokens,
-    svg_icon,
-    season_bar_html,
-    build_rotation_ring_svg,
-    get_crop_ring_color,
-)
+from src import config
+from src.design_system import get_tokens, build_gantt_timeline_html
 from src.economics_engine import calculate_farm_economic_roi
 from src.climate_alerts import evaluate_climate_hazards
-from src.voice_advisor import generate_voice_script, get_agro_voice_audio
 from src.pdf_generator import (
     REPORTS_CACHE_DIR,
     generate_advisory_pdf,
     build_advisory_html_report,
 )
+from src.views_layout import ensure_strategies_computed, open_voice_dialog
 
 
 def _clean_tag_title(raw_tag: str) -> str:
@@ -35,536 +32,49 @@ def _clean_tag_title(raw_tag: str) -> str:
     return raw_tag.strip()
 
 
-def render_results_page(dark_mode: bool = True):
-    """Render top context bar, 4-tab switcher, and active results sub-view."""
+def render_stage3_results(dark_mode: bool = True):
+    """Render Stage 3 custom crop rotation results matching GREEN FUTURE aesthetic."""
     t = get_tokens(dark_mode)
-    res = st.session_state.get("strategies_result")
-
-    if not res:
-        st.info("لم يتم حساب خطة بعد. ابدأ بتحديد بيانات أرضك أولاً.")
-        if st.button("ابدأ التحليل", key="res_fallback_start", type="primary"):
-            st.session_state.page = "wizard"
-            st.session_state.wizard_step = 1
-            st.rerun()
-        return
+    res = ensure_strategies_computed(allow_network=False)
 
     meta = res.get("metadata", {})
-    gov_ar = meta.get("governorate_ar", "موقع مخصص")
-    soil_ar = meta.get("soil_name_ar", "").split("(")[0].strip()
-    prev_ar = meta.get("previous_crop_name_ar", "")
+    gov_ar = meta.get("governorate_ar", "الفيوم")
+    soil_short = meta.get("soil_name_ar", "طينية").split("(")[0].strip()
+    prev_ar = meta.get("previous_crop_name_ar", "الذرة الشامية")
     area = float(st.session_state.get("farm_area", meta.get("area_feddan", 5.0)))
-
-    st.markdown('<div class="ao-enter">', unsafe_allow_html=True)
-
-    # Compact Context Summary Strip + Edit Action
-    ctx_col, edit_col = st.columns([4, 1], vertical_alignment="center")
-    with ctx_col:
-        st.markdown(
-            f"""
-            <div style="display:flex;align-items:center;flex-wrap:wrap;gap:8px;font-size:14px;color:{t['text_secondary']};">
-                <span style="color:{t['text_primary']};font-weight:500;">{gov_ar}</span>
-                <span>·</span>
-                <span>تربة {soil_ar}</span>
-                <span>·</span>
-                <span>بعد {prev_ar}</span>
-                <span>·</span>
-                <span><bdi class="ao-num">{area:.1f}</bdi> فدان</span>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
-    with edit_col:
-        with st.container(horizontal=True, horizontal_alignment="right"):
-            if st.button("تعديل البيانات", key="res_edit_wizard", type="secondary", width="content"):
-                st.session_state.page = "wizard"
-                st.session_state.wizard_step = 1
-                st.rerun()
-
-    st.markdown('<div style="height: 12px;"></div>', unsafe_allow_html=True)
-
-    # 4 Clean Segmented Tabs
-    tab_labels = {
-        "plan": "الخطة",
-        "weather": "الطقس والمخاطر",
-        "savings": "التوفير",
-        "report": "التقرير",
-    }
-    default_tab = st.session_state.get("results_tab", "plan")
-    active_tab = st.segmented_control(
-        "أقسام النتائج",
-        options=list(tab_labels.keys()),
-        default=default_tab if default_tab in tab_labels else "plan",
-        selection_mode="single",
-        required=True,
-        format_func=lambda k: tab_labels[k],
-        label_visibility="collapsed",
-        key="res_tab_control",
-    )
-    st.session_state.results_tab = active_tab
-
-    st.markdown(f'<hr style="margin: 16px 0 24px 0 !important; border-color:{t["hairline"]};" />', unsafe_allow_html=True)
-
-    if active_tab == "plan":
-        _render_tab_plan(res, t, dark_mode, area)
-    elif active_tab == "weather":
-        _render_tab_weather(res, t, dark_mode)
-    elif active_tab == "savings":
-        _render_tab_savings(res, t, dark_mode, area)
-    else:
-        _render_tab_report(res, t, dark_mode)
-
-    st.markdown("</div>", unsafe_allow_html=True)
-
-
-# =============================================================================
-# Tab 1: Plan (Rotation Ring + 3-Season Rows + Alternatives + Closed Matrix)
-# =============================================================================
-def _render_tab_plan(res: Dict[str, Any], t: Dict[str, str], dark_mode: bool, area: float):
-    """Display active strategy with Crop Rotation Ring and season schedule."""
-    all_keys = ["strategy_2_soil_health", "strategy_3_water_resilience", "strategy_1_baseline"]
-    prio = st.session_state.get("priority_preset", "soil")
-    recommended_key = "strategy_3_water_resilience" if prio == "water" else "strategy_2_soil_health"
-
-    active_key = st.session_state.get("active_strategy_key")
-    if active_key not in all_keys:
-        active_key = recommended_key
-        st.session_state.active_strategy_key = active_key
-
-    strat = res.get(active_key, {})
-    timeline = strat.get("timeline", [])
-    metrics = strat.get("metrics", {})
-
-    # Calculate concrete financial and urea bag numbers for consistency with Savings tab
-    roi = calculate_farm_economic_roi(
-        area_feddan=area,
-        strat_baseline=res.get("strategy_1_baseline", {}),
-        strat_soil=res.get("strategy_2_soil_health", {}),
-        strat_water=res.get("strategy_3_water_resilience", {}),
-    )
-    if active_key == "strategy_2_soil_health":
-        fin_gain = roi["strategy_2_soil_health"]["total_financial_gain_egp"]
-        urea_bags = roi["strategy_2_soil_health"]["urea_bags_saved"]
-        water_saved = roi["strategy_2_soil_health"]["water_saved_m3"]
-    elif active_key == "strategy_3_water_resilience":
-        fin_gain = roi["strategy_3_water_resilience"]["total_financial_gain_egp"]
-        urea_bags = roi["strategy_3_water_resilience"]["urea_bags_saved"]
-        water_saved = roi["strategy_3_water_resilience"]["water_saved_m3"]
-    else:
-        fin_gain = 0.0
-        urea_bags = 0.0
-        water_saved = 0.0
-
-    is_rec = (active_key == recommended_key)
-    tag_badge = (
-        f'<span class="ao-tag ao-tag-accent">الخطة المقترحة لأولويتك</span>'
-        if is_rec else
-        f'<span class="ao-tag">خطة بديلة</span>'
-    )
-
-    st.markdown(
-        f"""
-        <div style="text-align:start;direction:rtl;">
-            <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:8px;">
-                <h2 style="font-size:26px;">{_clean_tag_title(strat.get('tag_ar', ''))}</h2>
-                {tag_badge}
-            </div>
-            <p style="text-align:start;font-size:15px;color:{t['text_secondary']};margin:0 0 24px 0;">
-                {strat.get('summary_ar', '')}
-            </p>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-
-    # Center ring hero metric adapts cleanly to the viewed strategy
-    if active_key == "strategy_1_baseline":
-        center_val = f"{metrics.get('total_water_mm', 0):.0f}"
-        center_lbl = "ملم إجمالي الري"
-    else:
-        center_val = f"{water_saved:,.0f}"
-        center_lbl = "م³ توفير مياه"
-
-    season_colors = [
-        get_crop_ring_color(step.get("crop", {}).get("id", ""), i)
-        for i, step in enumerate(timeline)
-    ]
-
-    ring_col, table_col = st.columns([1.0, 1.2], vertical_alignment="center", gap="large")
-
-    with ring_col:
-        ring_svg = build_rotation_ring_svg(
-            timeline=timeline,
-            center_value=center_val,
-            center_label=center_lbl,
-            dark_mode=dark_mode,
-            size_px=264,
-            show_legend=True,
-        )
-        st.markdown(
-            f'<div class="ao-card" style="padding: 28px 20px;">{ring_svg}</div>',
-            unsafe_allow_html=True,
-        )
-
-    with table_col:
-        season_short = ["شتوي", "صيفي", "نيلي"]
-        rows_html = []
-        for idx, step in enumerate(timeline):
-            crop = step.get("crop", {})
-            c_name = crop.get("name_ar", "")
-            c_water = crop.get("water_demand_mm", 0)
-            c_n = crop.get("nitrogen_balance_kg_ha", 0)
-            n_color = t["positive"] if c_n > 0 else t["negative"] if c_n < 0 else t["text_muted"]
-            n_bg = t["accent_tint"] if c_n > 0 else t["negative_tint"] if c_n < 0 else t["bg_raised"]
-            n_str = f"{c_n:+.0f} كجم N"
-            bar_html = season_bar_html([idx], dark_mode=dark_mode, season_colors=season_colors)
-
-            rows_html.append(
-                f'<tr>'
-                f'<td style="color:{t["text_muted"]};font-size:13px;width:64px;">{season_short[idx] if idx < 3 else ""}</td>'
-                f'<td style="font-weight:500;color:{t["text_primary"]};">{c_name}</td>'
-                f'<td>{bar_html}</td>'
-                f'<td style="text-align:end;"><span class="ao-mono" style="color:{t["text_secondary"]};">{c_water:.0f}</span> <span style="font-size:12px;color:{t["text_muted"]};">ملم</span></td>'
-                f'<td style="text-align:end;"><span class="ao-mono" style="background:{n_bg};color:{n_color};padding:2px 8px;border-radius:6px;font-size:12.5px;">{n_str}</span></td>'
-                f'</tr>'
-            )
-
-        summary_footer = ""
-        if active_key != "strategy_1_baseline":
-            summary_footer = (
-                f'<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;padding:16px;border-top:1px solid {t["hairline"]};background:{t["bg_raised"]};">'
-                f'<div><div style="font-size:12px;color:{t["text_muted"]};">توفير يوريا</div><div class="ao-num" style="font-size:17px;font-weight:600;color:{t["wheat_gold"]};margin-top:4px;">{urea_bags:.1f} شكارة</div></div>'
-                f'<div><div style="font-size:12px;color:{t["text_muted"]};">الوفر المالي</div><div class="ao-num" style="font-size:17px;font-weight:600;color:{t["accent"]};margin-top:4px;">{fin_gain:,.0f} ج</div></div>'
-                f'<div><div style="font-size:12px;color:{t["text_muted"]};">كسر الآفات</div><div class="ao-num" style="font-size:17px;font-weight:600;color:{t["sky_teal"]};margin-top:4px;">{metrics.get("pest_break_efficiency_pct", 0):.0f}%</div></div>'
-                f'</div>'
-            )
-        else:
-            summary_footer = (
-                f'<div style="padding:14px 16px;border-top:1px solid {t["hairline"]};background:{t["bg_raised"]};font-size:13px;color:{t["text_secondary"]};">'
-                f'يمثل خط الأساس التقليدي للمقارنة. كفاءة كسر الآفات: <bdi class="ao-num">{metrics.get("pest_break_efficiency_pct", 0):.0f}%</bdi>'
-                f'</div>'
-            )
-
-        st.markdown(
-            f'<div class="ao-table-wrap">'
-            f'<table class="ao-table">'
-            f'<thead><tr><th>الموسم</th><th>المحصول</th><th>التتابع</th><th style="text-align:end;">المياه</th><th style="text-align:end;">النيتروجين</th></tr></thead>'
-            f'<tbody>{"".join(rows_html)}</tbody>'
-            f'</table>'
-            f'{summary_footer}'
-            f'</div>',
-            unsafe_allow_html=True,
-        )
-
-    # Alternative Strategies Section
-    st.markdown('<div style="height: 28px;"></div>', unsafe_allow_html=True)
-    st.markdown(f'<h3 style="font-size:16px;margin-bottom:12px;">خطط بديلة</h3>', unsafe_allow_html=True)
-
-    alt_keys = [k for k in all_keys if k != active_key]
-    alt_cols = st.columns(2, gap="medium")
-    for col, alt_k in zip(alt_cols, alt_keys):
-        alt_s = res.get(alt_k, {})
-        alt_tl = alt_s.get("timeline", [])
-        alt_colors = [get_crop_ring_color(s.get("crop", {}).get("id", ""), i) for i, s in enumerate(alt_tl)]
-        crop_chain = " · ".join(s.get("crop", {}).get("name_ar", "") for s in alt_tl)
-        alt_bars = season_bar_html([0, 1, 2], dark_mode=dark_mode, season_colors=alt_colors)
-        alt_water_pct = alt_s.get("metrics", {}).get("water_savings_pct", 0.0)
-
-        with col:
-            st.markdown(
-                f"""
-                <div class="ao-card-compact" style="margin-bottom:8px;">
-                    <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:6px;">
-                        <span style="font-size:15px;font-weight:500;color:{t['text_primary']};">{_clean_tag_title(alt_s.get('tag_ar', ''))}</span>
-                        {alt_bars}
-                    </div>
-                    <div style="font-size:13px;color:{t['text_secondary']};margin-bottom:6px;">{crop_chain}</div>
-                    <div style="font-size:12px;color:{t['text_muted']};">توفير المياه: <span class="ao-mono">+{alt_water_pct:.1f}%</span></div>
-                </div>
-                """,
-                unsafe_allow_html=True,
-            )
-            if st.button(f"عرض خطة {_clean_tag_title(alt_s.get('tag_ar', ''))}", key=f"alt_btn_{alt_k}", type="secondary", width="stretch"):
-                st.session_state.active_strategy_key = alt_k
-                st.rerun()
-
-    st.markdown('<div style="height: 20px;"></div>', unsafe_allow_html=True)
-
-    # Collapsed Comparison Table & Disclosure Expanders
-    with st.expander("مقارنة الخطط الثلاث جنباً إلى جنب", expanded=False):
-        matrix = res.get("comparison_matrix", [])
-        m_rows = []
-        for row in matrix:
-            m_rows.append(
-                f'<tr>'
-                f'<td style="font-weight:500;color:{t["text_primary"]};">{row["criterion_ar"]}</td>'
-                f'<td style="color:{t["text_secondary"]};">{row["strategy_1"]}</td>'
-                f'<td style="color:{t["accent"]};">{row["strategy_2"]}</td>'
-                f'<td style="color:{t["text_primary"]};">{row["strategy_3"]}</td>'
-                f'</tr>'
-            )
-        st.markdown(
-            f'<div class="ao-table-wrap">'
-            f'<table class="ao-table">'
-            f'<thead><tr><th>المعيار</th><th>الوضع الحالي</th><th>صحة التربة</th><th>التكيف المائي</th></tr></thead>'
-            f'<tbody>{"".join(m_rows)}</tbody>'
-            f'</table></div>',
-            unsafe_allow_html=True,
-        )
-
-    with st.expander("التحليل العلمي وحدود الرصد لهذه الخطة", expanded=False):
-        st.markdown(f"**سبب الاختيار**\n\n{strat.get('why_suggested', '')}")
-        st.markdown("---")
-        st.markdown(f"**الأدلة من قياسات ناسا**\n\n{strat.get('evidence', '')}")
-        st.markdown("---")
-        st.markdown(f"**الفوائد المتوقعة**\n\n{strat.get('benefits', '')}")
-        st.markdown("---")
-        st.markdown(f"**حدود البيانات والمراجعة الحقلية**\n\n{strat.get('information_gaps', '')}\n\n{strat.get('risks_and_agronomist_review', '')}")
-
-
-# =============================================================================
-# Tab 2: Weather & Risks (4 KPI Cards + 1 Primary Chart + Alerts + What-If)
-# =============================================================================
-def _render_tab_weather(res: Dict[str, Any], t: Dict[str, str], dark_mode: bool):
-    """Render clean satellite telemetry cards, 1 primary 10-day chart, and hazard alerts."""
     telemetry = st.session_state.get("telemetry", {})
     indices = telemetry.get("indices", {})
-    is_live = telemetry.get("is_live", False)
-    confidence = telemetry.get("confidence_score", 90.0)
 
-    status_dot = t["positive"] if is_live else t["warning"]
-    status_txt = "اتصال حي مع NASA POWER" if is_live else "بيانات مناخية معايرة"
-    st.markdown(
-        f"""
-        <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:16px;">
-            <span class="ao-tag"><span class="ao-dot" style="background:{status_dot};"></span>{status_txt}</span>
-            <span style="font-size:13px;color:{t['text_muted']};">موثوقية الرصد: <span class="ao-mono" style="color:{t['text_primary']};">{confidence:.1f}%</span></span>
-        </div>
-        """,
-        unsafe_allow_html=True,
+    # Apply 90-day scenario deltas from Stage 2 if active
+    t_shift = float(st.session_state.get("sim_temp_shift", 0.0))
+    r_shift = int(st.session_state.get("sim_rain_shift", 0))
+    eval_tel = telemetry
+    if t_shift != 0.0 or r_shift != 0:
+        eval_tel = dict(telemetry)
+        idx_c = dict(indices)
+        idx_c["avg_temp_c"] = round(float(idx_c.get("avg_temp_c", 23.0)) + t_shift, 1)
+        idx_c["max_temp_c"] = round(float(idx_c.get("max_temp_c", 31.0)) + t_shift, 1)
+        if t_shift >= 2.0:
+            idx_c["extreme_heat_days"] = int(idx_c.get("extreme_heat_days", 0)) + 2
+        if r_shift < 0:
+            idx_c["soil_moisture_score"] = max(
+                12.0, round(float(idx_c.get("soil_moisture_score", 45.0)) * (1.0 + r_shift / 160.0), 1)
+            )
+        eval_tel["indices"] = idx_c
+
+    eval_idx = eval_tel.get("indices", {})
+    hazards = evaluate_climate_hazards(
+        eval_tel,
+        previous_crop_id=st.session_state.get("previous_crop", "maize"),
+        soil_type=st.session_state.get("soil_type", "clay"),
     )
 
-    # 4 Vivid Semantic KPI Stat Cards
-    c1, c2, c3, c4 = st.columns(4, gap="small")
-    stats = [
-        ("متوسط الحرارة", f"{indices.get('avg_temp_c', 22.0)}°C", f"قصوى {indices.get('max_temp_c')} · دنيا {indices.get('min_temp_c')}", "thermometer", t["wheat_gold"], t["wheat_tint"]),
-        ("رطوبة التربة (SMAP)", f"{indices.get('soil_moisture_score', 45.0)}%", f"جذرية {indices.get('avg_root_zone_moisture')} · سطحية {indices.get('avg_surface_moisture')}", "droplets", t["accent"], t["accent_tint"]),
-        ("الأمطار (GPM)", f"{indices.get('total_precip_mm', 0.0)} مم", f"الرطوبة النسبية {indices.get('avg_relative_humidity')}%", "droplets", t["sky_teal"], t["sky_tint"]),
-        ("الإشعاع الشمسي", f"{indices.get('avg_solar_radiation_mj', 18.5)} MJ", f"أيام إجهاد حراري: {indices.get('extreme_heat_days', 0)}", "sun", t["wheat_gold"], t["wheat_tint"]),
-    ]
-    for col, (lbl, val, sub, ico, fg, bg) in zip((c1, c2, c3, c4), stats):
-        with col:
-            st.markdown(
-                f'<div class="ao-stat-card">'
-                f'<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">'
-                f'<span class="ao-stat-label" style="margin:0;">{lbl}</span>'
-                f'<span class="ao-icon-box" style="width:28px;height:28px;background:{bg};color:{fg};">{svg_icon(ico, 15)}</span>'
-                f'</div>'
-                f'<div class="ao-stat-val"><bdi dir="ltr">{val}</bdi></div>'
-                f'<div class="ao-stat-meta">{sub}</div>'
-                f'</div>',
-                unsafe_allow_html=True,
-            )
-
-    st.markdown('<div style="height: 24px;"></div>', unsafe_allow_html=True)
-
-    # One Primary Wide Chart (2/3) + Narrow Alert Feed (1/3)
-    chart_col, alert_col = st.columns([1.65, 1.0], gap="large")
-
-    with chart_col:
-        st.markdown(f'<h3 style="font-size:16px;margin-bottom:12px;">قياسات الطقس اليومية لآخر 10 أيام</h3>', unsafe_allow_html=True)
-        params = telemetry.get("cleaned_parameters", {})
-        t2m = params.get("T2M", {})
-        t2m_max = params.get("T2M_MAX", {})
-        t2m_min = params.get("T2M_MIN", {})
-        rain = params.get("PRECTOTCORR", {})
-        rh = params.get("RH2M", {})
-        gwet = params.get("GWETROOT", {})
-
-        dates = sorted(t2m.keys())[-10:]
-        if dates:
-            x_dates = [f"{d[4:6]}-{d[6:]}" if len(d) == 8 else d for d in dates]
-            y_temps = [round(t2m.get(d, 22.0), 1) for d in dates]
-            y_rains = [round(rain.get(d, 0.0), 2) for d in dates]
-
-            grid_c = "rgba(226,232,240,0.08)" if dark_mode else "rgba(15,23,42,0.06)"
-            bar_muted = "rgba(14,165,233,0.35)" if dark_mode else "rgba(2,132,199,0.28)"
-
-            fig = go.Figure()
-            fig.add_trace(go.Bar(
-                x=x_dates, y=y_rains, name="الأمطار (مم)", yaxis="y2",
-                marker=dict(color=bar_muted),
-            ))
-            fig.add_trace(go.Scatter(
-                x=x_dates, y=y_temps, mode="lines+markers", name="الحرارة (°C)",
-                line=dict(color=t["accent"], width=2.5),
-                marker=dict(color=t["accent"], size=6),
-            ))
-            fig.update_layout(
-                paper_bgcolor="rgba(0,0,0,0)",
-                plot_bgcolor="rgba(0,0,0,0)",
-                font=dict(family="IBM Plex Sans Arabic, sans-serif", color=t["text_secondary"]),
-                xaxis=dict(
-                    showgrid=False,
-                    automargin=True,
-                    tickfont=dict(family="IBM Plex Mono, monospace", size=11, color=t["text_muted"]),
-                ),
-                yaxis=dict(
-                    title=dict(text="°C", font=dict(size=11, color=t["text_muted"])),
-                    gridcolor=grid_c,
-                    automargin=True,
-                    tickfont=dict(family="IBM Plex Mono, monospace", size=11, color=t["text_muted"]),
-                ),
-                yaxis2=dict(
-                    overlaying="y", side="right", showgrid=False,
-                    automargin=True,
-                    tickfont=dict(family="IBM Plex Mono, monospace", size=10, color=t["text_muted"]),
-                ),
-                legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1, font=dict(size=12)),
-                margin=dict(l=48, r=48, t=36, b=28),
-                height=310,
-            )
-            st.plotly_chart(fig, theme=None, width="stretch")
-
-            with st.expander("عرض الجدول اليومي الكامل", expanded=False):
-                t_rows = []
-                for d in dates:
-                    fd = f"{d[:4]}-{d[4:6]}-{d[6:]}" if len(d) == 8 else d
-                    t_rows.append(
-                        f'<tr>'
-                        f'<td class="ao-mono" style="color:{t["text_primary"]};">{fd}</td>'
-                        f'<td class="ao-mono">{t2m.get(d, 0):.1f}°</td>'
-                        f'<td class="ao-mono">{t2m_max.get(d, 0):.1f}° / {t2m_min.get(d, 0):.1f}°</td>'
-                        f'<td class="ao-mono">{rain.get(d, 0):.1f} مم</td>'
-                        f'<td class="ao-mono">{rh.get(d, 0):.0f}%</td>'
-                        f'<td class="ao-mono">{round(gwet.get(d, 0.4) * 100, 0):.0f}%</td>'
-                        f'</tr>'
-                    )
-                st.markdown(
-                    f'<div class="ao-table-wrap"><table class="ao-table">'
-                    f'<thead><tr><th>التاريخ</th><th>المتوسط</th><th>قصوى / دنيا</th><th>الأمطار</th><th>الرطوبة</th><th>رطوبة الجذور</th></tr></thead>'
-                    f'<tbody>{"".join(t_rows)}</tbody></table></div>',
-                    unsafe_allow_html=True,
-                )
-        else:
-            st.info("لا توجد قراءات يومية مسجلة لهذه الإحداثيات.")
-
-    with alert_col:
-        st.markdown(f'<h3 style="font-size:16px;margin-bottom:12px;">الإنذار المبكر والمخاطر</h3>', unsafe_allow_html=True)
-        sim_scenario = st.selectbox(
-            "وضع الرصد",
-            options=["live", "heatwave_extreme", "frost_shock", "fungal_bloom", "flash_drought"],
-            format_func=lambda x: {
-                "live": "الرصد الحي الفعلي",
-                "heatwave_extreme": "اختبار موجة حر (41°C)",
-                "frost_shock": "اختبار صقيع ليلي (2.5°C)",
-                "fungal_bloom": "اختبار نشاط فطريات (رطوبة 86%)",
-                "flash_drought": "اختبار جفاف جذور (SMAP 0.20)",
-            }[x],
-            label_visibility="collapsed",
-            key="hazard_sim_select",
-        )
-
-        active_tel = telemetry
-        if sim_scenario != "live":
-            active_tel = dict(telemetry)
-            idx_copy = dict(indices)
-            if sim_scenario == "heatwave_extreme":
-                idx_copy.update({"avg_temp_c": 36.5, "max_temp_c": 41.0, "extreme_heat_days": 4})
-            elif sim_scenario == "frost_shock":
-                idx_copy.update({"min_temp_c": 2.5, "avg_temp_c": 11.0})
-            elif sim_scenario == "fungal_bloom":
-                idx_copy.update({"avg_relative_humidity_pct": 86.0, "avg_temp_c": 21.0, "avg_surface_moisture": 0.65})
-            elif sim_scenario == "flash_drought":
-                idx_copy.update({"avg_root_zone_moisture": 0.20, "soil_moisture_score": 22.0})
-            active_tel["indices"] = idx_copy
-
-        alerts = evaluate_climate_hazards(
-            active_tel,
-            previous_crop_id=st.session_state.get("previous_crop", "maize"),
-            soil_type=st.session_state.get("soil_type", "clay"),
-        )
-
-        for a in alerts:
-            sev = a["severity"]
-            dot_c = t["negative"] if sev == "critical" else t["warning"] if sev == "warning" else t["positive"]
-            badge_bg = t["negative_tint"] if sev == "critical" else t["warning_tint"] if sev == "warning" else t["accent_tint"]
-            sev_txt = "حرج" if sev == "critical" else "تنبيه" if sev == "warning" else "مستقر"
-            acts = "".join(f"<li style='margin-bottom:4px;'>{x}</li>" for x in a.get("urgent_actions", []))
-
-            st.markdown(
-                f"""
-                <div class="ao-card-compact" style="margin-bottom:12px;border-inline-start:4px solid {dot_c};">
-                    <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;margin-bottom:8px;">
-                        <span style="font-size:14px;font-weight:600;color:{t['text_primary']};">{a['title_ar']}</span>
-                        <span class="ao-tag" style="background:{badge_bg};color:{dot_c};border-color:transparent;"><span class="ao-dot" style="background:{dot_c};"></span>{sev_txt}</span>
-                    </div>
-                    <p style="font-size:13px;color:{t['text_secondary']};margin:0 0 8px 0;">{a['trigger_data']}</p>
-                    <div style="font-size:13px;color:{t['text_secondary']};">
-                        <ol style="margin:0;padding-inline-start:18px;">{acts}</ol>
-                    </div>
-                </div>
-                """,
-                unsafe_allow_html=True,
-            )
-
-    st.markdown('<div style="height: 16px;"></div>', unsafe_allow_html=True)
-    with st.expander("محاكاة تغير المناخ (ماذا لو)", expanded=False):
-        sc1, sc2 = st.columns(2)
-        with sc1:
-            t_shift = st.slider("تغير درجة الحرارة (°C)", -4.0, 5.0, 0.0, 0.5, key="whatif_temp")
-        with sc2:
-            r_shift = st.slider("تغير كمية الأمطار (%)", -50, 50, 0, 10, key="whatif_rain")
-
-        if t_shift != 0.0 or r_shift != 0:
-            sim_t = float(indices.get("avg_temp_c", 22.0)) + t_shift
-            advice = (
-                "يرجح التحول إلى خطة التكيف المائي لتفادي إجهاد الإزهار."
-                if t_shift > 1.5
-                else "تبقى الدورات المقترحة ضمن النطاق الحراري الآمن."
-            )
-            st.markdown(
-                f'<div class="ao-card-compact" style="margin-top:8px;">'
-                f'<span style="color:{t["text_primary"]};font-size:14px;">عند متوسط حرارة <bdi class="ao-num">{sim_t:.1f}°C</bdi>: {advice}</span>'
-                f'</div>',
-                unsafe_allow_html=True,
-            )
-
-
-# =============================================================================
-# Tab 3: Savings ROI (Acreage Sync + 3 KPI Cards + 1 Chart + Breakdown Table)
-# =============================================================================
-def _render_tab_savings(res: Dict[str, Any], t: Dict[str, str], dark_mode: bool, area: float):
-    """Display water, fertilizer, and cash ROI per feddan cleanly."""
-    ctrl1, ctrl2 = st.columns([1.2, 1.4], vertical_alignment="bottom")
-    with ctrl1:
-        farm_area = st.number_input(
-            "مساحة الأرض (فدان)",
-            min_value=0.5, max_value=500.0, value=float(area), step=0.5, format="%.1f",
-            key="roi_area_sync",
-        )
-        st.session_state.farm_area = farm_area
-    with ctrl2:
-        strat_focus = st.segmented_control(
-            "اختر الخطة للحساب",
-            options=["soil_health", "water_resilience"],
-            default="soil_health",
-            selection_mode="single",
-            required=True,
-            format_func=lambda x: "صحة التربة والنيتروجين" if x == "soil_health" else "التكيف المائي",
-            key="roi_strat_seg",
-        )
-
-    with st.expander("تعديل أسعار اليوريا وتكلفة الري (اختياري)", expanded=False):
-        p1, p2, p3 = st.columns(3)
-        with p1:
-            urea_price = st.number_input("سعر شكارة اليوريا 50 كجم (جنيه)", 250.0, 2000.0, 750.0, 25.0, key="roi_urea_p")
-        with p2:
-            pump_cost = st.number_input("تكلفة ضخ متر المياه (جنيه/م³)", 0.4, 5.0, 1.1, 0.1, key="roi_pump_p")
-        with p3:
-            pest_save = st.number_input("وفر المبيدات للفدان (جنيه)", 200.0, 2500.0, 650.0, 50.0, key="roi_pest_p")
+    urea_price = float(st.session_state.get("roi_urea_price", 750.0))
+    pump_cost = float(st.session_state.get("roi_pump_cost", 1.1))
+    pest_save = float(st.session_state.get("roi_pest_save", 650.0))
 
     roi = calculate_farm_economic_roi(
-        area_feddan=farm_area,
+        area_feddan=area,
         strat_baseline=res.get("strategy_1_baseline", {}),
         strat_soil=res.get("strategy_2_soil_health", {}),
         strat_water=res.get("strategy_3_water_resilience", {}),
@@ -572,236 +82,362 @@ def _render_tab_savings(res: Dict[str, Any], t: Dict[str, str], dark_mode: bool,
         pumping_cost_m3_egp=pump_cost,
         pesticide_saving_per_feddan_egp=pest_save,
     )
-    chosen = roi["strategy_2_soil_health"] if strat_focus == "soil_health" else roi["strategy_3_water_resilience"]
 
-    st.markdown('<div style="height: 16px;"></div>', unsafe_allow_html=True)
+    # Determine recommended plan ordering based on goal choice
+    goal = st.session_state.get("goal_choice", "water")
+    if goal == "water":
+        best_key = "strategy_3_water_resilience"
+        alt_key = "strategy_2_soil_health"
+    else:
+        best_key = "strategy_2_soil_health"
+        alt_key = "strategy_3_water_resilience"
+    base_key = "strategy_1_baseline"
 
-    # 3 Crisp Semantic KPI Stat Cards
-    k1, k2, k3 = st.columns(3, gap="medium")
-    kpis = [
-        ("الوفر المالي التراكمي", f"{chosen['total_financial_gain_egp']:,.0f} ج", f"معدل {chosen['financial_gain_per_feddan_egp']:,.0f} جنيه / فدان", "coins", t["accent"], t["accent_tint"]),
-        ("مياه الري الموفرة", f"{chosen['water_saved_m3']:,.0f} م³", f"+{chosen['water_saved_pct']}% مقارنة بالوضع الحالي", "droplets", t["sky_teal"], t["sky_tint"]),
-        ("شكاير اليوريا الموفرة", f"{chosen['urea_bags_saved']:,.1f} شكارة", f"تثبيت حيوي · خفض {chosen['co2_offset_tons']:.2f} طن CO₂", "sprout", t["wheat_gold"], t["wheat_tint"]),
-    ]
-    for col, (lbl, val, meta, ico, fg, bg) in zip((k1, k2, k3), kpis):
-        with col:
-            st.markdown(
-                f'<div class="ao-stat-card">'
-                f'<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">'
-                f'<span class="ao-stat-label" style="margin:0;">{lbl}</span>'
-                f'<span class="ao-icon-box" style="width:30px;height:30px;background:{bg};color:{fg};">{svg_icon(ico, 16)}</span>'
-                f'</div>'
-                f'<div class="ao-stat-val" style="color:{fg};"><bdi dir="ltr">{val}</bdi></div>'
-                f'<div class="ao-stat-meta">{meta}</div>'
-                f'</div>',
-                unsafe_allow_html=True,
-            )
+    best_roi = roi["strategy_3_water_resilience"] if best_key == "strategy_3_water_resilience" else roi["strategy_2_soil_health"]
 
-    st.markdown('<div style="height: 24px;"></div>', unsafe_allow_html=True)
+    st.markdown('<div class="gf-animate">', unsafe_allow_html=True)
 
-    # One Primary Chart (Water Comparison) + Narrow Breakdown Table
-    c_chart, c_table = st.columns([1.55, 1.0], gap="large")
-    with c_chart:
-        st.markdown(f'<h3 style="font-size:16px;margin-bottom:12px;">استهلاك المياه الكلي لـ {farm_area:.1f} فدان (م³)</h3>', unsafe_allow_html=True)
-        w_base = roi["baseline"]["total_water_m3"]
-        w_s2 = w_base - roi["strategy_2_soil_health"]["water_saved_m3"]
-        w_s3 = w_base - roi["strategy_3_water_resilience"]["water_saved_m3"]
-
-        neutral_bar = "#334155" if dark_mode else "#cbd5e1"
-        bar_colors = [
-            neutral_bar,
-            t["accent"] if strat_focus == "soil_health" else neutral_bar,
-            t["sky_teal"] if strat_focus == "water_resilience" else t["wheat_gold"],
-        ]
-        grid_c = "rgba(226,232,240,0.08)" if dark_mode else "rgba(15,23,42,0.06)"
-
-        fig_w = go.Figure(go.Bar(
-            x=["الوضع الحالي", "صحة التربة", "التكيف المائي"],
-            y=[w_base, w_s2, w_s3],
-            text=[f"{w_base:,.0f}", f"{w_s2:,.0f}", f"{w_s3:,.0f}"],
-            textposition="outside",
-            textfont=dict(family="IBM Plex Mono, monospace", size=12, color=t["text_primary"]),
-            marker=dict(color=bar_colors),
-        ))
-        fig_w.update_layout(
-            paper_bgcolor="rgba(0,0,0,0)",
-            plot_bgcolor="rgba(0,0,0,0)",
-            font=dict(family="IBM Plex Sans Arabic, sans-serif", color=t["text_secondary"]),
-            xaxis=dict(showgrid=False, automargin=True, tickfont=dict(size=13, color=t["text_primary"])),
-            yaxis=dict(
-                showgrid=True, gridcolor=grid_c,
-                automargin=True,
-                range=[0, max(w_base, 100) * 1.18],
-                tickfont=dict(family="IBM Plex Mono, monospace", size=11, color=t["text_muted"]),
-            ),
-            margin=dict(l=52, r=24, t=24, b=28),
-            height=290,
-            showlegend=False,
+    # -------------------------------------------------------------------------
+    # 1. Stage 3 Action Bar Header
+    # -------------------------------------------------------------------------
+    h_info, b_edit, b_lab, b_voice = st.columns([2.7, 1.0, 1.1, 1.1], vertical_alignment="center", gap="small")
+    with h_info:
+        sim_note = (
+            f' • <span style="color:{t["blue"]};font-weight:700;">سيناريو <bdi dir="ltr">{t_shift:+.1f}°C</bdi> / أمطار <bdi dir="ltr">{r_shift:+d}%</bdi></span>'
+            if (t_shift != 0.0 or r_shift != 0) else ""
         )
-        st.plotly_chart(fig_w, theme=None, width="stretch")
-
-    with c_table:
-        st.markdown(f'<h3 style="font-size:16px;margin-bottom:12px;">تفصيل الوفر المالي</h3>', unsafe_allow_html=True)
-        f_save = chosen["fertilizer_savings_egp"]
-        p_save = chosen["pumping_savings_egp"]
-        pest_s = chosen["pesticide_savings_egp"]
-        tot = chosen["total_financial_gain_egp"]
-
         st.markdown(
-            f'<div class="ao-table-wrap"><table class="ao-table">'
-            f'<tbody>'
-            f'<tr><td>وفر سماد اليوريا</td><td class="ao-mono" style="text-align:end;">{f_save:,.0f} ج</td></tr>'
-            f'<tr><td>وفر طاقة وضخ المياه</td><td class="ao-mono" style="text-align:end;">{p_save:,.0f} ج</td></tr>'
-            f'<tr><td>وفر مبيدات كسر الآفات</td><td class="ao-mono" style="text-align:end;">{pest_s:,.0f} ج</td></tr>'
-            f'<tr style="background:{t["bg_deepest"]};font-weight:500;">'
-            f'<td style="color:{t["text_primary"]};">الإجمالي التراكمي</td>'
-            f'<td class="ao-mono" style="text-align:end;color:{t["accent"]};">{tot:,.0f} ج</td>'
-            f'</tr>'
-            f'</tbody></table></div>',
+            f'<h1 style="font-size:26px;font-weight:800;color:{t["tx"]};margin-bottom:4px;">خطتك الزراعية المخصصة</h1>'
+            f'<div style="font-size:14px;color:{t["mu"]};">'
+            f'<b style="color:{t["tx"]};">{gov_ar}</b> • تربة {soil_short} • بعد {prev_ar} • <bdi dir="ltr">{area:.1f}</bdi> فدان{sim_note}'
+            f'</div>',
+            unsafe_allow_html=True,
+        )
+    with b_edit:
+        if st.button("تعديل الأهداف", icon=":material/tune:", key="s3_edit_goals", type="secondary", width="stretch"):
+            st.session_state.page = "stage2"
+            st.query_params["page"] = "stage2"
+            st.rerun()
+    with b_lab:
+        if st.button("الخرائط والمختبر", icon=":material/public:", key="s3_go_lab", type="secondary", width="stretch"):
+            st.session_state.page = "stage4"
+            st.query_params["page"] = "stage4"
+            st.rerun()
+    with b_voice:
+        if st.button("المستشار الصوتي", icon=":material/record_voice_over:", key="s3_open_voice", type="primary", width="stretch"):
+            open_voice_dialog()
+
+    st.markdown('<div style="height: 20px;"></div>', unsafe_allow_html=True)
+
+    # -------------------------------------------------------------------------
+    # 2. 3-Column Summary Strip (2 Metrics Cards + 1 Highlighted ROI Box)
+    # -------------------------------------------------------------------------
+    moist_pct = float(eval_idx.get("soil_moisture_score", 46.0))
+    avg_t = float(eval_idx.get("avg_temp_c", 23.0))
+    max_t = float(eval_idx.get("max_temp_c", 31.0))
+    conf_pct = float(telemetry.get("confidence_score", 92.0))
+    top_haz = hazards[0] if hazards else {"severity": "safe", "title_ar": "مؤشرات الطقس مستقرة"}
+    haz_c = t["danger"] if top_haz["severity"] == "critical" else t["amber"] if top_haz["severity"] == "warning" else t["ac"]
+    haz_bg = t["danger_soft"] if top_haz["severity"] == "critical" else t["amber_soft"] if top_haz["severity"] == "warning" else t["ac_soft"]
+
+    s1, s2, s3 = st.columns([1.0, 1.0, 1.35], gap="medium")
+    with s1:
+        st.markdown(
+            f"""
+            <div class="gf-sum-box">
+                <div style="font-size:12.5px;color:{t['mu']};margin-bottom:6px;">قراءة التربة والرطوبة (<bdi dir="ltr">SMAP</bdi>)</div>
+                <div style="font-size:24px;font-weight:800;color:{t['tx']};margin-bottom:6px;">
+                    {soil_short} <span style="color:{t['blue']};font-size:20px;"><bdi dir="ltr">{moist_pct:.0f}%</bdi></span>
+                </div>
+                <div style="font-size:12.5px;color:{t['mu']};">موثوقية بيانات ناسا: <bdi dir="ltr" style="color:{t['ac']};font-weight:700;">{conf_pct:.0f}%</bdi></div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+    with s2:
+        st.markdown(
+            f"""
+            <div class="gf-sum-box">
+                <div style="font-size:12.5px;color:{t['mu']};margin-bottom:6px;">مؤشر الحرارة والإنذار المبكر</div>
+                <div style="font-size:24px;font-weight:800;color:{t['tx']};margin-bottom:8px;">
+                    <bdi dir="ltr">{avg_t:.1f}°C</bdi> <span style="font-size:13.5px;color:{t['mu']};font-weight:600;">(قصوى <bdi dir="ltr">{max_t:.1f}°C</bdi>)</span>
+                </div>
+                <span style="display:inline-block;background:{haz_bg};color:{haz_c};padding:3px 10px;border-radius:999px;font-size:12px;font-weight:700;">
+                    {top_haz['title_ar']}
+                </span>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+    with s3:
+        st.markdown(
+            f"""
+            <div class="gf-sum-highlight">
+                <div style="font-size:12.5px;color:{t['ac']};font-weight:700;margin-bottom:4px;">أكبر توفير متوقع في دورتك ({area:.1f} فدان)</div>
+                <div style="font-size:26px;font-weight:800;color:{t['tx']};margin-bottom:6px;">
+                    <bdi dir="ltr">{best_roi['total_financial_gain_egp']:,.0f}</bdi> <span style="font-size:15px;">جنيه صافي وفر</span>
+                </div>
+                <div style="font-size:13px;color:{t['tx']};">
+                    توفير <b style="color:{t['blue']};"><bdi dir="ltr">{best_roi['water_saved_m3']:,.0f}</bdi> م³ مياه</b> (<bdi dir="ltr">+{best_roi['water_saved_pct']:.1f}%</bdi>)
+                    &nbsp;•&nbsp; <b style="color:{t['amber']};"><bdi dir="ltr">{best_roi['urea_bags_saved']:,.1f}</bdi> شيكارة يوريا</b>
+                </div>
+            </div>
+            """,
             unsafe_allow_html=True,
         )
 
+    st.markdown('<div style="height: 26px;"></div>', unsafe_allow_html=True)
 
-# =============================================================================
-# Tab 4: Report & Voice (Colloquial Egyptian Audio + Printable A4 PDF)
-# =============================================================================
-def _render_tab_report(res: Dict[str, Any], t: Dict[str, str], dark_mode: bool):
-    """Display Voice Agro-Advisor, PDF/HTML Export, and calm scientific disclaimer."""
-    meta = res.get("metadata", {})
-    telemetry = st.session_state.get("telemetry", {})
+    # -------------------------------------------------------------------------
+    # 3. Side-by-Side 3-Plan Comparison Cards (.gf-plan-best / Alt / Baseline)
+    # -------------------------------------------------------------------------
+    st.markdown(f'<h2 style="font-size:20px;font-weight:800;margin-bottom:14px;color:{t["tx"]};">مقارنة الخطط الـ 3 لدورة العام الكامل (3 مواسم)</h2>', unsafe_allow_html=True)
 
-    # 1. Egyptian Dialect Voice Briefing
-    st.markdown(
-        f"""
-        <div class="ao-card" style="margin-bottom: 24px;">
-            <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;">
-                <span style="color:{t['text_secondary']};display:inline-flex;">{svg_icon("volume", 18)}</span>
-                <h3 style="font-size:18px;">الملخص الصوتي بالعامية المصرية</h3>
-            </div>
-            <p style="font-size:14px;color:{t['text_secondary']};margin:0 0 16px 0;">
-                استمع لملخص التوصية بأسلوب واضح ومباشر، أو حمّل الملف الصوتي لتشغيله بدون إنترنت.
-            </p>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
+    plan_cards_cfg = [
+        (best_key, "gf-plan-card gf-plan-best", "✓ الخطة المثلى لهدفك", t["ac"], t["ac_soft"]),
+        (alt_key, "gf-plan-card", "خطة بديلة قوية", t["blue"], t["blue_soft"]),
+        (base_key, "gf-plan-card gf-plan-baseline", "الوضع التقليدي للمقارنة", t["mu"], t["surface_alt"]),
+    ]
 
-    briefing_opts = {
-        "comprehensive": "الملخص الشامل",
-        "soil_health": "صحة التربة واليوريا",
-        "water_resilience": "ترشيد المياه والحر",
-        "pest_prevention": "وقاية النبات والآفات",
-    }
-    selected_b = st.pills(
-        "موضوع الرسالة الصوتية",
-        options=list(briefing_opts.keys()),
-        default="comprehensive",
-        selection_mode="single",
-        required=True,
-        format_func=lambda k: briefing_opts[k],
-        label_visibility="collapsed",
-        key="report_voice_pills",
-    )
+    cards_markup = []
+    for p_key, cls_name, badge_txt, b_fg, b_bg in plan_cards_cfg:
+        strat = res.get(p_key, {})
+        title_ar = _clean_tag_title(strat.get("tag_ar", ""))
+        metrics = strat.get("metrics", {})
+        timeline = strat.get("timeline", [])
+        why_short = html.escape(strat.get("why_suggested", strat.get("summary_ar", ""))[:190])
+        if len(strat.get("why_suggested", "")) > 190:
+            why_short += "..."
 
-    script_text = generate_voice_script(selected_b, meta, res)
-    audio_bytes = get_agro_voice_audio(script_text)
+        # Build sequence of .gf-crop-chip items with clear seasonal names
+        chips_html_parts = []
+        for idx, step in enumerate(timeline):
+            c_obj = step.get("crop", {})
+            c_name = html.escape(c_obj.get("name_ar", ""))
+            raw_sl = c_obj.get("season_label_ar", "").strip()
+            s_lbl = html.escape(raw_sl.split(" ")[0] if raw_sl else f"موسم {idx + 1}")
+            chips_html_parts.append(
+                f'<span class="gf-crop-chip" style="padding:3px 10px;font-size:12.5px;">{s_lbl}: {c_name}</span>'
+            )
+            if idx < len(timeline) - 1:
+                chips_html_parts.append(f'<span style="color:{t["mu"]};font-size:12px;">←</span>')
+        chips_html = f'<div style="display:flex;flex-wrap:wrap;align-items:center;gap:5px;margin:10px 0;">{"".join(chips_html_parts)}</div>'
 
-    v_col, d_col = st.columns([3, 1], vertical_alignment="center")
-    with v_col:
-        if audio_bytes:
-            st.audio(audio_bytes, format="audio/mp3")
+        w_mm = metrics.get("total_water_mm", 0.0)
+        pest_pct = metrics.get("pest_break_efficiency_pct", 0.0)
+        if p_key == base_key:
+            gain_str = 'مرجع أساسي'
+            w_save_str = '<bdi dir="ltr">0%</bdi> (أساس)'
         else:
-            st.info("تعذر توليد الصوت حالياً، يمكنك قراءة النص المكتوب بالأسفل.")
-    with d_col:
-        if audio_bytes:
-            st.download_button(
-                label="تحميل الصوت (MP3)",
-                data=audio_bytes,
-                file_name=f"agroorbit_voice_{selected_b}.mp3",
-                mime="audio/mp3",
-                width="stretch",
+            p_roi = roi["strategy_3_water_resilience"] if p_key == "strategy_3_water_resilience" else roi["strategy_2_soil_health"]
+            gain_str = f'<bdi dir="ltr">{p_roi["total_financial_gain_egp"]:,.0f}</bdi> ج'
+            w_save_str = f'<bdi dir="ltr">+{metrics.get("water_savings_pct", 0.0):.1f}%</bdi>'
+
+        cards_markup.append(
+            f'<div class="{cls_name}">'
+            f'<div>'
+            f'<span style="display:inline-block;background:{b_bg};color:{b_fg};padding:3px 12px;border-radius:999px;font-size:12px;font-weight:700;margin-bottom:8px;">{badge_txt}</span>'
+            f'<h3 style="font-size:18px;font-weight:800;color:{t["tx"]};margin-bottom:4px;">{title_ar}</h3>'
+            f'{chips_html}'
+            f'<div class="gf-plan-why">{why_short}</div>'
+            f'</div>'
+            f'<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px;">'
+            f'<div class="gf-metric-tile"><div style="font-size:11.5px;color:{t["mu"]};">استهلاك المياه</div><div style="font-size:14px;font-weight:800;color:{t["tx"]};"><bdi dir="ltr">{w_mm:.0f}</bdi> مم</div></div>'
+            f'<div class="gf-metric-tile"><div style="font-size:11.5px;color:{t["mu"]};">توفير المياه</div><div style="font-size:14px;font-weight:800;color:{t["blue"]};">{w_save_str}</div></div>'
+            f'<div class="gf-metric-tile"><div style="font-size:11.5px;color:{t["mu"]};">كسر دورة الآفات</div><div style="font-size:14px;font-weight:800;color:{t["ac"]};"><bdi dir="ltr">{pest_pct:.0f}%</bdi></div></div>'
+            f'<div class="gf-metric-tile"><div style="font-size:11.5px;color:{t["mu"]};">الوفر المالي</div><div style="font-size:14px;font-weight:800;color:{t["amber"]};">{gain_str}</div></div>'
+            f'</div>'
+            f'</div>'
+        )
+
+    st.markdown(f'<div class="gf-plans-grid">{"".join(cards_markup)}</div>', unsafe_allow_html=True)
+
+    st.markdown('<div style="height: 28px;"></div>', unsafe_allow_html=True)
+
+    # -------------------------------------------------------------------------
+    # 4. Interactive 12-Month Color-Coded Gantt Timeline Grid
+    # -------------------------------------------------------------------------
+    g_hdr, g_ctrl = st.columns([1.8, 1.4], vertical_alignment="center")
+    with g_hdr:
+        st.markdown(f'<h2 style="font-size:20px;font-weight:800;color:{t["tx"]};">الجدول الزمني السنوي لتغطية التربة (<bdi dir="ltr">12</bdi> شهراً)</h2>', unsafe_allow_html=True)
+    with g_ctrl:
+        gantt_opts = {
+            best_key: "الموصى بها",
+            alt_key: "البديلة",
+            base_key: "التقليدي",
+        }
+        chosen_gantt = st.segmented_control(
+            "خطة الجدول الزمني",
+            options=list(gantt_opts.keys()),
+            default=best_key,
+            selection_mode="single",
+            required=True,
+            format_func=lambda k: gantt_opts[k],
+            label_visibility="collapsed",
+            key="s3_gantt_select",
+        )
+
+    active_tl = res.get(chosen_gantt or best_key, {}).get("timeline", [])
+    st.markdown(build_gantt_timeline_html(active_tl, dark_mode=dark_mode), unsafe_allow_html=True)
+
+    st.markdown('<div style="height: 28px;"></div>', unsafe_allow_html=True)
+
+    # -------------------------------------------------------------------------
+    # 5. Early Warning Hazards (Left) + Live ROI Calculator Breakdown (Right)
+    # -------------------------------------------------------------------------
+    haz_col, roi_col = st.columns([1.1, 1.2], gap="large")
+
+    with haz_col:
+        st.markdown(f'<h3 style="font-size:18px;font-weight:800;margin-bottom:12px;color:{t["tx"]};">الإنذار المبكر والمخاطر المناخية</h3>', unsafe_allow_html=True)
+        for a in hazards:
+            sev = a["severity"]
+            dot_c = t["danger"] if sev == "critical" else t["amber"] if sev == "warning" else t["ac"]
+            badge_bg = t["danger_soft"] if sev == "critical" else t["amber_soft"] if sev == "warning" else t["ac_soft"]
+            sev_txt = "حرج" if sev == "critical" else "تنبيه" if sev == "warning" else "مستقر"
+            acts = "".join(f"<li style='margin-bottom:4px;'>{x}</li>" for x in a.get("urgent_actions", []))
+            st.markdown(
+                f"""
+                <div class="gf-card" style="padding:16px 18px;margin-bottom:12px;border-inline-start:4px solid {dot_c};">
+                    <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:6px;">
+                        <span style="font-size:14.5px;font-weight:800;color:{t['tx']};">{a['title_ar']}</span>
+                        <span style="background:{badge_bg};color:{dot_c};padding:2px 10px;border-radius:999px;font-size:12px;font-weight:700;">{sev_txt}</span>
+                    </div>
+                    <p style="font-size:13px;color:{t['mu']};margin:0 0 8px 0;">{a['trigger_data']}</p>
+                    <ol style="margin:0;padding-inline-start:18px;font-size:13px;color:{t['tx']};">{acts}</ol>
+                </div>
+                """,
+                unsafe_allow_html=True,
             )
 
-    with st.expander("قراءة نص الرسالة الصوتية", expanded=False):
+    with roi_col:
+        st.markdown(f'<h3 style="font-size:18px;font-weight:800;margin-bottom:12px;color:{t["tx"]};">تفاصيل الوفورات الاقتصادية المتوقعة</h3>', unsafe_allow_html=True)
+        roi_focus = st.segmented_control(
+            "الخطة المحسوب توفيرها",
+            options=["soil_health", "water_resilience"],
+            default="water_resilience" if goal == "water" else "soil_health",
+            selection_mode="single",
+            required=True,
+            format_func=lambda k: "خطة صحة التربة واليوريا" if k == "soil_health" else "خطة التكيف وترشيد المياه",
+            label_visibility="collapsed",
+            key="s3_roi_focus",
+        )
+        focus_roi = roi["strategy_2_soil_health"] if roi_focus == "soil_health" else roi["strategy_3_water_resilience"]
+
         st.markdown(
-            f'<div class="ao-card-compact" style="line-height:1.85;font-size:15px;color:{t["text_primary"]};">'
-            f'{script_text.replace(chr(10), "<br>")}'
+            f"""
+            <div class="gf-table-wrap">
+                <table class="gf-table">
+                    <thead><tr><th>بند التوفير السنوي ({area:.1f} فدان)</th><th style="text-align:end;">القيمة</th></tr></thead>
+                    <tbody>
+                        <tr><td>توفير سماد اليوريا (<bdi dir="ltr">{focus_roi['urea_bags_saved']:,.1f}</bdi> شيكارة)</td><td style="text-align:end;font-weight:700;"><bdi dir="ltr">{focus_roi['fertilizer_savings_egp']:,.0f} ج</bdi></td></tr>
+                        <tr><td>توفير طاقة وضخ المياه (<bdi dir="ltr">{focus_roi['water_saved_m3']:,.0f}</bdi> م³)</td><td style="text-align:end;font-weight:700;"><bdi dir="ltr">{focus_roi['pumping_savings_egp']:,.0f} ج</bdi></td></tr>
+                        <tr><td>وفر مبيدات كسر دورة الآفات</td><td style="text-align:end;font-weight:700;"><bdi dir="ltr">{focus_roi['pesticide_savings_egp']:,.0f} ج</bdi></td></tr>
+                        <tr><td>الأثر البيئي (تجنب انبعاثات <bdi dir="ltr">CO₂</bdi>)</td><td style="text-align:end;color:{t['blue']};font-weight:700;"><bdi dir="ltr">{focus_roi['co2_offset_tons']:.2f} طن</bdi></td></tr>
+                        <tr style="background:{t['ac_soft']};font-weight:800;">
+                            <td style="color:{t['tx']};">الإجمالي التراكمي للوفر</td>
+                            <td style="text-align:end;color:{t['ac']};"><bdi dir="ltr">{focus_roi['total_financial_gain_egp']:,.0f} ج</bdi></td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+        with st.expander("تخصيص أسعار اليوريا وتكلفة الري والأفدنة", expanded=False):
+            c_a, c_u, c_p = st.columns(3, gap="small")
+            with c_a:
+                new_area = st.number_input("الفدان", 0.5, 500.0, area, 0.5, format="%.1f", key="s3_area_adj")
+                if abs(new_area - area) > 0.05:
+                    st.session_state.farm_area = new_area
+            with c_u:
+                st.session_state.roi_urea_price = st.number_input("اليوريا (ج)", 250.0, 2000.0, urea_price, 25.0, key="s3_urea_adj")
+            with c_p:
+                st.session_state.roi_pump_cost = st.number_input("الضخ (ج/م³)", 0.4, 5.0, pump_cost, 0.1, key="s3_pump_adj")
+
+    st.markdown('<div style="height: 18px;"></div>', unsafe_allow_html=True)
+
+    # -------------------------------------------------------------------------
+    # 6. Scientific Evidence & Printable PDF Report Expanders
+    # -------------------------------------------------------------------------
+    with st.expander("التفاصيل العلمية ومصفوفة مقارنة الخطط الثلاث", expanded=False):
+        matrix = res.get("comparison_matrix", [])
+        if matrix:
+            m_rows = "".join(
+                f'<tr><td style="font-weight:700;">{row["criterion_ar"]}</td>'
+                f'<td>{row["strategy_1"]}</td>'
+                f'<td style="color:{t["ac"]};font-weight:700;">{row["strategy_2"]}</td>'
+                f'<td style="color:{t["blue"]};font-weight:700;">{row["strategy_3"]}</td></tr>'
+                for row in matrix
+            )
+            st.markdown(
+                f'<div class="gf-table-wrap"><table class="gf-table">'
+                f'<thead><tr><th>المعيار</th><th>الوضع التقليدي</th><th>صحة التربة</th><th>التكيف المائي</th></tr></thead>'
+                f'<tbody>{m_rows}</tbody></table></div>',
+                unsafe_allow_html=True,
+            )
+        best_strat = res.get(best_key, {})
+        st.markdown(
+            f'<div class="gf-insight-box">'
+            f'<b>الأدلة الفضائية للخطة الموصى بها:</b> {best_strat.get("evidence", "")}<br><br>'
+            f'<b>الفوائد الزراعية:</b> {best_strat.get("benefits", "")}'
             f'</div>',
             unsafe_allow_html=True,
         )
 
-    st.markdown('<div style="height: 24px;"></div>', unsafe_allow_html=True)
+    with st.expander("تحميل ومعاينة التقرير الرسمي للجمعية الزراعية (A4 PDF / HTML)", expanded=False):
+        report_filename = f"AgroOrbit_Report_{abs(hash(str(meta))) % 1000000:06d}.pdf"
+        cached_pdf = REPORTS_CACHE_DIR / report_filename
+        pdf_bytes = None
+        if cached_pdf.exists():
+            try:
+                with open(cached_pdf, "rb") as f:
+                    pdf_bytes = f.read()
+            except Exception:
+                pass
+        if not pdf_bytes:
+            with st.spinner("جاري تجهيز نسخة التقرير PDF..."):
+                pdf_bytes = generate_advisory_pdf(meta, res, telemetry, report_filename)
+        html_report = build_advisory_html_report(meta, res, telemetry)
 
-    # 2. Official Printable PDF Report
-    st.markdown(
-        f"""
-        <div class="ao-card" style="margin-bottom: 16px;">
-            <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;">
-                <span style="color:{t['text_secondary']};display:inline-flex;">{svg_icon("file-text", 18)}</span>
-                <h3 style="font-size:18px;">التقرير الاستشاري للطباعة (<bdi dir="ltr">A4 PDF</bdi>)</h3>
-            </div>
-            <p style="font-size:14px;color:{t['text_secondary']};margin:0;">
-                وثيقة منظمة تشمل قياسات ناسا للمزرعة، جدول المواسم الثلاثة لكل خطة، وحسابات التوفير لتسليمها للجمعية الزراعية أو المرشد.
-            </p>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-
-    report_filename = f"AgroOrbit_Report_{abs(hash(str(meta))) % 1000000:06d}.pdf"
-    cached_pdf = REPORTS_CACHE_DIR / report_filename
-    pdf_bytes = None
-    if cached_pdf.exists():
-        try:
-            with open(cached_pdf, "rb") as f:
-                pdf_bytes = f.read()
-        except Exception:
-            pass
-
-    if not pdf_bytes:
-        with st.spinner("جاري تجهيز نسخة التقرير..."):
-            pdf_bytes = generate_advisory_pdf(meta, res, telemetry, report_filename)
-
-    html_report = build_advisory_html_report(meta, res, telemetry)
-
-    b1, b2 = st.columns(2, gap="medium")
-    with b1:
-        if pdf_bytes:
+        d1, d2 = st.columns(2, gap="medium")
+        with d1:
+            if pdf_bytes:
+                st.download_button(
+                    label="تحميل التقرير المعتمد (PDF)",
+                    data=pdf_bytes,
+                    file_name=report_filename,
+                    mime="application/pdf",
+                    width="stretch",
+                    key="s3_dl_pdf",
+                )
+            else:
+                st.info("استخدم تحميل HTML وطباعته كـ PDF مباشرة.")
+        with d2:
             st.download_button(
-                label="تحميل التقرير المعتمد (PDF)",
-                data=pdf_bytes,
-                file_name=report_filename,
-                mime="application/pdf",
+                label="تحميل نسخة ويب للطباعة (HTML)",
+                data=html_report.encode("utf-8"),
+                file_name=report_filename.replace(".pdf", ".html"),
+                mime="text/html",
                 width="stretch",
+                key="s3_dl_html",
             )
-        else:
-            st.info("يمكنك تحميل النسخة الرقمية (HTML) وطباعتها كـ PDF مباشرة من المتصفح.")
-    with b2:
-        st.download_button(
-            label="تحميل نسخة ويب للطباعة (HTML)",
-            data=html_report.encode("utf-8"),
-            file_name=report_filename.replace(".pdf", ".html"),
-            mime="text/html",
-            width="stretch",
-        )
+        components.html(html_report, height=540, scrolling=True)
 
-    with st.expander("معاينة صفحة التقرير", expanded=False):
-        components.html(html_report, height=620, scrolling=True)
+    st.markdown('<div style="height: 18px;"></div>', unsafe_allow_html=True)
 
-    st.markdown('<div style="height: 24px;"></div>', unsafe_allow_html=True)
-
-    # 3. Calm Scientific Disclaimer
+    # -------------------------------------------------------------------------
+    # 7. Warm Amber Advisory Disclaimer Box
+    # -------------------------------------------------------------------------
     st.markdown(
         f"""
-        <div class="ao-card-compact" style="border-color:{t['hairline']};">
-            <div style="display:flex;align-items:center;gap:8px;color:{t['text_secondary']};margin-bottom:6px;">
-                {svg_icon("shield", 15)}
-                <span style="font-size:13px;font-weight:500;color:{t['text_primary']};">حدود الدقة العلمية للبيانات</span>
-            </div>
-            <p style="font-size:13px;line-height:1.65;color:{t['text_muted']};margin:0;">
-                تأتي قياسات <bdi dir="ltr">NASA POWER</bdi> و<bdi dir="ltr">SMAP</bdi> بدقة شبكية إقليمية (~50 كم)، وهي دقيقة لتحديد الاتجاهات الحرارية والبخر نتح، ولكنها لا تغني عن فحص عينة التربة معملياً أو مراجعة المهندس الزراعي المختص بالجمعية.
-            </p>
+        <div class="gf-amber-box">
+            <b>ملاحظة الفحص الحقلية والأقمار الصناعية:</b>
+            تستند الحسابات المناخية ورطوبة التربة الجذرية (<bdi dir="ltr">NASA POWER / SMAP</bdi>) إلى شبكة رصد بدقة بقطر نحو <bdi dir="ltr">50</bdi> كم.
+            هذه التوصية مرجع علمي دقيق للتخطيط، ويُفضّل مطابقتها مع عينة تحليل ملوحة التربة ومناوبة الترعة المحلية بالتنسيق مع المهندس الزراعي.
         </div>
         """,
         unsafe_allow_html=True,
     )
+
+    st.markdown("</div>", unsafe_allow_html=True)
